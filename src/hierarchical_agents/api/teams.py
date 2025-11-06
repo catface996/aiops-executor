@@ -173,6 +173,10 @@ async def create_hierarchical_team(team_config: Dict[str, Any]) -> TeamCreationR
         # Generate unique team ID
         team_id = f"ht_{uuid.uuid4().hex[:9]}"
         
+        # Store team configuration in memory for later execution
+        from .executions import _store_team_config_in_memory
+        _store_team_config_in_memory(team_id, team_config)
+        
         # Calculate execution order
         try:
             execution_order = config_manager.get_execution_order(validated_team)

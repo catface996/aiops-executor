@@ -13,7 +13,6 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Union
 from contextlib import asynccontextmanager
 
-import redis.asyncio as redis
 from pydantic import BaseModel
 
 from .data_models import (
@@ -31,12 +30,11 @@ from .data_models import (
 
 class StateManagerConfig(BaseModel):
     """Configuration for StateManager."""
-    redis_url: str = "redis://localhost:6379"
-    redis_db: int = 0
     key_prefix: str = "hierarchical_agents"
     default_ttl: int = 3600  # 1 hour
     max_retries: int = 3
     retry_delay: float = 0.1
+    cleanup_interval: int = 3600  # 1 hour
 
 
 class ExecutionState(BaseModel):
@@ -66,89 +64,52 @@ class StateManager:
     def __init__(self, config: Optional[StateManagerConfig] = None):
         """Initialize StateManager with configuration."""
         self.config = config or StateManagerConfig()
-        self._redis: Optional[redis.Redis] = None
+        self._memory_store: Dict[str, Dict[str, Any]] = {
+            'executions': {},
+            'teams': {},
+            'agents': {},
+            'events': {}
+        }
         self._lock_timeout = 10  # seconds
         self.logger = logging.getLogger(f"{self.__class__.__name__}")
+        self._initialized = False
         
     async def initialize(self) -> None:
-        """Initialize Redis connection with fallback to in-memory storage."""
-        try:
-            self._redis = redis.from_url(
-                self.config.redis_url,
-                db=self.config.redis_db,
-                decode_responses=True,
-                retry_on_timeout=True,
-                socket_keepalive=True,
-                socket_keepalive_options={}
-            )
+        """Initialize in-memory storage."""
+        if self._initialized:
+            return
             
-            # Test connection
-            await self._redis.ping()
-            self.logger.info("Successfully connected to Redis")
-            
-        except Exception as e:
-            self.logger.warning(f"Failed to connect to Redis: {e}. Using in-memory storage as fallback.")
-            self._redis = None
-            # Initialize in-memory storage
-            self._memory_store = {
-                'executions': {},
-                'teams': {},
-                'agents': {},
-                'events': {}
-            }
+        self.logger.info("Initializing StateManager with in-memory storage")
+        
+        # Start cleanup task
+        asyncio.create_task(self._cleanup_expired_data())
+        
+        self._initialized = True
+        self.logger.info("StateManager initialized successfully")
     
     async def close(self) -> None:
-        """Close Redis connection."""
-        if self._redis:
-            await self._redis.close()
+        """Close StateManager and cleanup resources."""
+        self._initialized = False
+        self._memory_store.clear()
+        self.logger.info("StateManager closed")
     
     def _get_key(self, key_type: str, identifier: str) -> str:
-        """Generate Redis key with prefix."""
+        """Generate storage key with prefix."""
         return f"{self.config.key_prefix}:{key_type}:{identifier}"
     
     def _get_lock_key(self, identifier: str) -> str:
-        """Generate lock key for distributed locking."""
+        """Generate lock key for memory locking."""
         return f"{self.config.key_prefix}:lock:{identifier}"
     
     @asynccontextmanager
     async def _distributed_lock(self, identifier: str):
-        """Distributed lock for ensuring data consistency."""
-        if not self._redis:
+        """Simple memory lock for ensuring data consistency."""
+        if not self._initialized:
             raise RuntimeError("StateManager not initialized")
         
-        lock_key = self._get_lock_key(identifier)
-        lock_value = str(time.time())
-        acquired = False
-        
-        try:
-            # Try to acquire lock with timeout
-            for _ in range(self.config.max_retries):
-                acquired = await self._redis.set(
-                    lock_key, 
-                    lock_value, 
-                    nx=True, 
-                    ex=self._lock_timeout
-                )
-                if acquired:
-                    break
-                await asyncio.sleep(self.config.retry_delay)
-            
-            if not acquired:
-                raise RuntimeError(f"Failed to acquire lock for {identifier}")
-            
-            yield
-            
-        finally:
-            if acquired:
-                # Release lock only if we own it
-                lua_script = """
-                if redis.call("get", KEYS[1]) == ARGV[1] then
-                    return redis.call("del", KEYS[1])
-                else
-                    return 0
-                end
-                """
-                await self._redis.eval(lua_script, 1, lock_key, lock_value)
+        # For in-memory storage, we don't need complex locking
+        # Just yield immediately since we're single-threaded
+        yield
     
     async def create_execution(
         self, 
@@ -157,13 +118,12 @@ class StateManager:
         context: ExecutionContext
     ) -> None:
         """Create a new execution state."""
-        if not self._redis:
+        if not self._initialized:
             raise RuntimeError("StateManager not initialized")
         
         async with self._distributed_lock(execution_id):
             # Check if execution already exists
-            existing = await self.get_execution_state(execution_id)
-            if existing:
+            if execution_id in self._memory_store['executions']:
                 raise ValueError(f"Execution {execution_id} already exists")
             
             # Create initial state
@@ -180,13 +140,11 @@ class StateManager:
                 updated_at=now
             )
             
-            # Store in Redis
-            key = self._get_key("execution", execution_id)
-            await self._redis.setex(
-                key,
-                self.config.default_ttl,
-                state.model_dump_json()
-            )
+            # Store in memory with expiration timestamp
+            self._memory_store['executions'][execution_id] = {
+                'data': state.model_dump(),
+                'expires_at': now.timestamp() + self.config.default_ttl
+            }
     
     async def update_execution_status(
         self, 
@@ -194,43 +152,43 @@ class StateManager:
         status: ExecutionStatus
     ) -> None:
         """Update execution status."""
-        if not self._redis:
+        if not self._initialized:
             raise RuntimeError("StateManager not initialized")
         
         async with self._distributed_lock(execution_id):
-            state = await self.get_execution_state(execution_id)
-            if not state:
+            if execution_id not in self._memory_store['executions']:
                 raise ValueError(f"Execution {execution_id} not found")
             
-            state.status = status
-            state.updated_at = datetime.now()
+            # Get current state
+            stored_data = self._memory_store['executions'][execution_id]
+            state_dict = stored_data['data']
+            state_dict['status'] = status.value
+            state_dict['updated_at'] = datetime.now().isoformat()
             
-            key = self._get_key("execution", execution_id)
-            await self._redis.setex(
-                key,
-                self.config.default_ttl,
-                state.model_dump_json()
-            )
+            # Update expiration
+            stored_data['expires_at'] = datetime.now().timestamp() + self.config.default_ttl
     
     async def add_event(self, execution_id: str, event: ExecutionEvent) -> None:
         """Add an event to execution state."""
-        if not self._redis:
+        if not self._initialized:
             raise RuntimeError("StateManager not initialized")
         
         async with self._distributed_lock(execution_id):
-            state = await self.get_execution_state(execution_id)
-            if not state:
+            if execution_id not in self._memory_store['executions']:
                 raise ValueError(f"Execution {execution_id} not found")
             
-            state.events.append(event)
-            state.updated_at = datetime.now()
+            # Get current state
+            stored_data = self._memory_store['executions'][execution_id]
+            state_dict = stored_data['data']
             
-            key = self._get_key("execution", execution_id)
-            await self._redis.setex(
-                key,
-                self.config.default_ttl,
-                state.model_dump_json()
-            )
+            # Add event
+            if 'events' not in state_dict:
+                state_dict['events'] = []
+            state_dict['events'].append(event.model_dump())
+            state_dict['updated_at'] = datetime.now().isoformat()
+            
+            # Update expiration
+            stored_data['expires_at'] = datetime.now().timestamp() + self.config.default_ttl
     
     async def update_team_state(
         self, 
@@ -239,23 +197,25 @@ class StateManager:
         team_state: TeamState
     ) -> None:
         """Update team state within execution."""
-        if not self._redis:
+        if not self._initialized:
             raise RuntimeError("StateManager not initialized")
         
         async with self._distributed_lock(execution_id):
-            state = await self.get_execution_state(execution_id)
-            if not state:
+            if execution_id not in self._memory_store['executions']:
                 raise ValueError(f"Execution {execution_id} not found")
             
-            state.team_states[team_id] = team_state
-            state.updated_at = datetime.now()
+            # Get current state
+            stored_data = self._memory_store['executions'][execution_id]
+            state_dict = stored_data['data']
             
-            key = self._get_key("execution", execution_id)
-            await self._redis.setex(
-                key,
-                self.config.default_ttl,
-                state.model_dump_json()
-            )
+            # Update team state
+            if 'team_states' not in state_dict:
+                state_dict['team_states'] = {}
+            state_dict['team_states'][team_id] = team_state.model_dump()
+            state_dict['updated_at'] = datetime.now().isoformat()
+            
+            # Update expiration
+            stored_data['expires_at'] = datetime.now().timestamp() + self.config.default_ttl
     
     async def update_team_result(
         self, 
@@ -264,23 +224,25 @@ class StateManager:
         result: TeamResult
     ) -> None:
         """Update team result within execution."""
-        if not self._redis:
+        if not self._initialized:
             raise RuntimeError("StateManager not initialized")
         
         async with self._distributed_lock(execution_id):
-            state = await self.get_execution_state(execution_id)
-            if not state:
+            if execution_id not in self._memory_store['executions']:
                 raise ValueError(f"Execution {execution_id} not found")
             
-            state.results[team_id] = result
-            state.updated_at = datetime.now()
+            # Get current state
+            stored_data = self._memory_store['executions'][execution_id]
+            state_dict = stored_data['data']
             
-            key = self._get_key("execution", execution_id)
-            await self._redis.setex(
-                key,
-                self.config.default_ttl,
-                state.model_dump_json()
-            )
+            # Update team result
+            if 'results' not in state_dict:
+                state_dict['results'] = {}
+            state_dict['results'][team_id] = result.model_dump()
+            state_dict['updated_at'] = datetime.now().isoformat()
+            
+            # Update expiration
+            stored_data['expires_at'] = datetime.now().timestamp() + self.config.default_ttl
     
     async def update_execution_summary(
         self, 
@@ -288,43 +250,45 @@ class StateManager:
         summary: ExecutionSummary
     ) -> None:
         """Update execution summary."""
-        if not self._redis:
+        if not self._initialized:
             raise RuntimeError("StateManager not initialized")
         
         async with self._distributed_lock(execution_id):
-            state = await self.get_execution_state(execution_id)
-            if not state:
+            if execution_id not in self._memory_store['executions']:
                 raise ValueError(f"Execution {execution_id} not found")
             
-            state.summary = summary
-            state.updated_at = datetime.now()
+            # Get current state
+            stored_data = self._memory_store['executions'][execution_id]
+            state_dict = stored_data['data']
             
-            key = self._get_key("execution", execution_id)
-            await self._redis.setex(
-                key,
-                self.config.default_ttl,
-                state.model_dump_json()
-            )
+            # Update summary
+            state_dict['summary'] = summary.model_dump()
+            state_dict['updated_at'] = datetime.now().isoformat()
+            
+            # Update expiration
+            stored_data['expires_at'] = datetime.now().timestamp() + self.config.default_ttl
     
     async def add_error(self, execution_id: str, error: ErrorInfo) -> None:
         """Add error to execution state."""
-        if not self._redis:
+        if not self._initialized:
             raise RuntimeError("StateManager not initialized")
         
         async with self._distributed_lock(execution_id):
-            state = await self.get_execution_state(execution_id)
-            if not state:
+            if execution_id not in self._memory_store['executions']:
                 raise ValueError(f"Execution {execution_id} not found")
             
-            state.errors.append(error)
-            state.updated_at = datetime.now()
+            # Get current state
+            stored_data = self._memory_store['executions'][execution_id]
+            state_dict = stored_data['data']
             
-            key = self._get_key("execution", execution_id)
-            await self._redis.setex(
-                key,
-                self.config.default_ttl,
-                state.model_dump_json()
-            )
+            # Add error
+            if 'errors' not in state_dict:
+                state_dict['errors'] = []
+            state_dict['errors'].append(error.model_dump())
+            state_dict['updated_at'] = datetime.now().isoformat()
+            
+            # Update expiration
+            stored_data['expires_at'] = datetime.now().timestamp() + self.config.default_ttl
     
     async def update_metrics(
         self, 
@@ -352,31 +316,27 @@ class StateManager:
     
     async def get_execution_state(self, execution_id: str) -> Optional[ExecutionState]:
         """Get complete execution state."""
+        if not self._initialized:
+            return None
+            
         start_time = time.time()
         
-        if self._redis:
-            # Use Redis
-            key = self._get_key("execution", execution_id)
-            data = await self._redis.get(key)
-        else:
-            # Use in-memory storage
-            if not hasattr(self, '_memory_store'):
-                return None
-            data = self._memory_store['executions'].get(execution_id)
-            if data and isinstance(data, dict):
-                import json
-                data = json.dumps(data)
+        # Check if execution exists and is not expired
+        if execution_id not in self._memory_store['executions']:
+            return None
+            
+        stored_data = self._memory_store['executions'][execution_id]
+        
+        # Check expiration
+        if stored_data['expires_at'] < datetime.now().timestamp():
+            # Remove expired data
+            del self._memory_store['executions'][execution_id]
+            return None
         
         query_time = (time.time() - start_time) * 1000  # Convert to milliseconds
         
-        if not data:
-            return None
-        
         try:
-            if isinstance(data, str):
-                state_dict = json.loads(data)
-            else:
-                state_dict = data
+            state_dict = stored_data['data']
             return ExecutionState.model_validate(state_dict)
         except Exception as e:
             self.logger.error(f"Failed to deserialize execution state: {e}")
@@ -451,102 +411,129 @@ class StateManager:
         limit: int = 100
     ) -> List[str]:
         """List execution IDs with optional filtering."""
-        if self._redis:
-            # Use Redis
-            pattern = self._get_key("execution", "*")
-            keys = await self._redis.keys(pattern)
-            execution_ids = []
-            for key in keys[:limit]:  # Limit to prevent memory issues
-                execution_id = key.split(":")[-1]
+        if not self._initialized:
+            return []
+        
+        execution_ids = []
+        current_time = datetime.now().timestamp()
+        
+        # Clean up expired entries and collect valid ones
+        expired_keys = []
+        for execution_id, stored_data in self._memory_store['executions'].items():
+            # Check expiration
+            if stored_data['expires_at'] < current_time:
+                expired_keys.append(execution_id)
+                continue
                 
-                # Apply filters if specified
-                if team_id or status:
-                    state = await self.get_execution_state(execution_id)
-                    if not state:
+            # Apply filters if specified
+            if team_id or status:
+                try:
+                    state_dict = stored_data['data']
+                    if team_id and state_dict.get('team_id') != team_id:
                         continue
-                    
-                    if team_id and state.team_id != team_id:
+                    if status and state_dict.get('status') != status.value:
                         continue
-                    
-                    if status and state.status != status:
-                        continue
-                
-                execution_ids.append(execution_id)
-        else:
-            # Use in-memory storage
-            if not hasattr(self, '_memory_store'):
-                return []
-            
-            execution_ids = []
-            for execution_id in list(self._memory_store['executions'].keys())[:limit]:
-                # Apply filters if specified
-                if team_id or status:
-                    state = await self.get_execution_state(execution_id)
-                    if not state:
-                        continue
-                    
-                    if team_id and state.team_id != team_id:
-                        continue
-                    
-                    if status and state.status != status:
-                        continue
-                
-                execution_ids.append(execution_id)
-                
-                if status and state.status != status:
+                except Exception:
                     continue
             
             execution_ids.append(execution_id)
+            
+            # Respect limit
+            if len(execution_ids) >= limit:
+                break
+        
+        # Clean up expired entries
+        for key in expired_keys:
+            del self._memory_store['executions'][key]
         
         return execution_ids
     
+    async def _cleanup_expired_data(self) -> None:
+        """Periodically clean up expired data."""
+        while self._initialized:
+            try:
+                current_time = datetime.now().timestamp()
+                expired_keys = []
+                
+                # Check executions
+                for execution_id, stored_data in self._memory_store['executions'].items():
+                    if stored_data['expires_at'] < current_time:
+                        expired_keys.append(execution_id)
+                
+                # Remove expired entries
+                for key in expired_keys:
+                    del self._memory_store['executions'][key]
+                
+                if expired_keys:
+                    self.logger.info(f"Cleaned up {len(expired_keys)} expired executions")
+                
+                # Wait for next cleanup cycle
+                await asyncio.sleep(self.config.cleanup_interval)
+                
+            except Exception as e:
+                self.logger.error(f"Error during cleanup: {e}")
+                await asyncio.sleep(60)  # Wait 1 minute before retrying
+    
     async def delete_execution(self, execution_id: str) -> bool:
         """Delete execution state."""
-        if not self._redis:
+        if not self._initialized:
             raise RuntimeError("StateManager not initialized")
         
         async with self._distributed_lock(execution_id):
-            key = self._get_key("execution", execution_id)
-            result = await self._redis.delete(key)
-            return result > 0
+            if execution_id in self._memory_store['executions']:
+                del self._memory_store['executions'][execution_id]
+                return True
+            return False
     
     async def cleanup_expired_executions(self) -> int:
         """Clean up expired executions (manual cleanup for debugging)."""
-        if not self._redis:
+        if not self._initialized:
             raise RuntimeError("StateManager not initialized")
         
-        pattern = self._get_key("execution", "*")
-        keys = await self._redis.keys(pattern)
+        current_time = datetime.now().timestamp()
+        expired_keys = []
         
-        deleted_count = 0
-        for key in keys:
-            ttl = await self._redis.ttl(key)
-            if ttl == -1:  # Key exists but has no expiration
-                # Set expiration for keys without TTL
-                await self._redis.expire(key, self.config.default_ttl)
-            elif ttl == -2:  # Key doesn't exist
-                deleted_count += 1
+        for execution_id, stored_data in self._memory_store['executions'].items():
+            if stored_data['expires_at'] < current_time:
+                expired_keys.append(execution_id)
         
-        return deleted_count
+        # Remove expired entries
+        for key in expired_keys:
+            del self._memory_store['executions'][key]
+        
+        return len(expired_keys)
     
     async def get_stats(self) -> Dict[str, Any]:
         """Get StateManager statistics."""
-        if not self._redis:
+        if not self._initialized:
             raise RuntimeError("StateManager not initialized")
         
-        pattern = self._get_key("execution", "*")
-        keys = await self._redis.keys(pattern)
+        current_time = datetime.now().timestamp()
+        active_executions = 0
+        expired_executions = 0
+        
+        for stored_data in self._memory_store['executions'].values():
+            if stored_data['expires_at'] >= current_time:
+                active_executions += 1
+            else:
+                expired_executions += 1
         
         stats = {
-            "total_executions": len(keys),
-            "redis_info": await self._redis.info("memory"),
+            "total_executions": len(self._memory_store['executions']),
+            "active_executions": active_executions,
+            "expired_executions": expired_executions,
+            "memory_usage": {
+                "executions_count": len(self._memory_store['executions']),
+                "teams_count": len(self._memory_store['teams']),
+                "agents_count": len(self._memory_store['agents']),
+                "events_count": len(self._memory_store['events'])
+            },
             "config": self.config.model_dump()
         }
         
         # Count by status
         status_counts = {}
-        for key in keys[:50]:  # Limit to prevent performance issues
-            execution_id = key.split(":")[-1]
+        for execution_id in list(self._memory_store['executions'].keys())[:50]:  # Limit to prevent performance issues
             state = await self.get_execution_state(execution_id)
             if state:
                 status = state.status.value
@@ -558,24 +545,17 @@ class StateManager:
 
 
 # Utility functions for common operations
-async def create_state_manager(
-    redis_url: str = "redis://localhost:6379",
-    redis_db: int = 0
-) -> StateManager:
+async def create_state_manager() -> StateManager:
     """Create and initialize a StateManager instance."""
-    config = StateManagerConfig(redis_url=redis_url, redis_db=redis_db)
+    config = StateManagerConfig()
     manager = StateManager(config)
     await manager.initialize()
     return manager
 
 
-async def with_state_manager(
-    func,
-    redis_url: str = "redis://localhost:6379",
-    redis_db: int = 0
-):
+async def with_state_manager(func):
     """Context manager for StateManager operations."""
-    manager = await create_state_manager(redis_url, redis_db)
+    manager = await create_state_manager()
     try:
         return await func(manager)
     finally:

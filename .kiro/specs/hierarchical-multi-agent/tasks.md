@@ -467,3 +467,222 @@ graph TD
     - [x] 并发性能良好：系统可以处理多个并发执行请求
     - [x] 资源使用合理：内存和CPU使用在正常范围内
     - [x] 监控集成成功：Prometheus可以正确抓取指标数据
+
+- [ ] **任务28: 量子力学研究团队实战验证**
+  - 通过curl命令创建量子力学研究团队
+  - 执行完整的科普文章写作工作流
+  - 验证流式事件和最终输出
+  - _需求: 1.1, 1.2, 1.3, 1.4, 2.1, 2.2, 2.3, 3.1, 3.2, 3.3, 4.1, 4.2, 4.3, 5.1, 5.2, 5.3, 5.4_
+  - _依赖: 任务27_
+  - **验证方法:**
+    - [ ] 团队创建成功：使用curl POST创建包含理论物理学家、实验物理学家、实验研究员、科普作家的量子力学研究团队
+    - [ ] 执行启动成功：使用curl POST触发团队执行，任务为"写一篇量子力学的科普文章"
+    - [ ] 流式事件正常：使用curl GET监听执行过程中的实时事件流
+    - [ ] 协作流程完整：验证四个角色按照分层结构协作完成科普文章写作
+    - [ ] 输出质量良好：最终生成的科普文章结构完整、内容准确、通俗易懂
+    - [ ] 使用OpenRouter Gemini：所有智能体使用google/gemini-2.5-flash模型
+  - **具体验证步骤:**
+    ```bash
+    # 1. 创建量子力学研究团队
+    curl -X POST "http://localhost:8000/api/v1/hierarchical-teams" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "team_name": "quantum_mechanics_research_team",
+        "description": "量子力学研究团队，专门协作撰写科普文章",
+        "top_supervisor_config": {
+          "llm_config": {
+            "provider": "openrouter",
+            "model": "google/gemini-2.5-flash",
+            "base_url": "https://openrouter.ai/api/v1",
+            "temperature": 0.3,
+            "max_tokens": 2000
+          },
+          "system_prompt": "你是量子力学研究团队的首席协调者，负责统筹理论物理学家、实验物理学家、实验研究员和科普作家的工作，确保他们协作完成高质量的量子力学科普文章。",
+          "user_prompt": "请协调团队成员，按照科学严谨性和通俗易懂的原则，共同撰写一篇关于量子力学的科普文章。文章应涵盖量子力学的基本概念、重要实验、现代应用和未来发展方向，要求内容科学准确、结构清晰、通俗易懂，适合普通读者阅读。",
+          "max_iterations": 10
+        },
+        "sub_teams": [
+          {
+            "id": "theory_team",
+            "name": "理论研究团队",
+            "description": "负责量子力学理论基础和概念阐述",
+            "supervisor_config": {
+              "llm_config": {
+                "provider": "openrouter",
+                "model": "google/gemini-2.5-flash",
+                "base_url": "https://openrouter.ai/api/v1",
+                "temperature": 0.2,
+                "max_tokens": 1500
+              },
+              "system_prompt": "你是理论研究团队的监督者，负责协调理论物理学家的工作，确保量子力学理论内容的准确性和深度。",
+              "user_prompt": "请指导理论物理学家为量子力学科普文章提供准确的理论基础内容。",
+              "max_iterations": 8
+            },
+            "agent_configs": [
+              {
+                "agent_id": "theoretical_physicist",
+                "agent_name": "理论物理学家",
+                "llm_config": {
+                  "provider": "openrouter",
+                  "model": "google/gemini-2.5-flash",
+                  "base_url": "https://openrouter.ai/api/v1",
+                  "temperature": 0.1,
+                  "max_tokens": 2000
+                },
+                "system_prompt": "你是一位资深的理论物理学家，专精量子力学理论。你的任务是为科普文章提供准确的理论基础，包括量子力学的基本原理、数学描述和重要概念。",
+                "user_prompt": "请提供量子力学的理论基础内容，包括波函数、不确定性原理、量子叠加等核心概念的准确描述。",
+                "tools": [],
+                "max_iterations": 5
+              }
+            ]
+          },
+          {
+            "id": "experiment_team", 
+            "name": "实验研究团队",
+            "description": "负责量子力学实验验证和应用案例",
+            "supervisor_config": {
+              "llm_config": {
+                "provider": "openrouter",
+                "model": "google/gemini-2.5-flash",
+                "base_url": "https://openrouter.ai/api/v1",
+                "temperature": 0.3,
+                "max_tokens": 1500
+              },
+              "system_prompt": "你是实验研究团队的监督者，负责协调实验物理学家和实验研究员，确保实验内容的准确性和实用性。",
+              "user_prompt": "请指导团队为科普文章提供量子力学的实验验证和实际应用案例。",
+              "max_iterations": 8
+            },
+            "agent_configs": [
+              {
+                "agent_id": "experimental_physicist",
+                "agent_name": "实验物理学家",
+                "llm_config": {
+                  "provider": "openrouter",
+                  "model": "google/gemini-2.5-flash",
+                  "base_url": "https://openrouter.ai/api/v1",
+                  "temperature": 0.2,
+                  "max_tokens": 1800
+                },
+                "system_prompt": "你是一位经验丰富的实验物理学家，专门从事量子力学实验研究。你的任务是为科普文章提供重要的实验验证案例和现代量子技术应用。",
+                "user_prompt": "请提供量子力学的关键实验验证，如双缝实验、贝尔不等式实验等，以及量子计算、量子通信等现代应用。",
+                "tools": [],
+                "max_iterations": 5
+              },
+              {
+                "agent_id": "research_assistant",
+                "agent_name": "实验研究员",
+                "llm_config": {
+                  "provider": "openrouter",
+                  "model": "google/gemini-2.5-flash",
+                  "base_url": "https://openrouter.ai/api/v1",
+                  "temperature": 0.4,
+                  "max_tokens": 1500
+                },
+                "system_prompt": "你是一位实验研究员，负责收集和整理量子力学的最新研究进展和实验数据。你的任务是为科普文章提供最新的研究成果和数据支持。",
+                "user_prompt": "请收集量子力学领域的最新研究进展、实验数据和技术发展趋势。",
+                "tools": [],
+                "max_iterations": 4
+              }
+            ]
+          },
+          {
+            "id": "writing_team",
+            "name": "科普写作团队", 
+            "description": "负责将专业内容转化为通俗易懂的科普文章",
+            "supervisor_config": {
+              "llm_config": {
+                "provider": "openrouter",
+                "model": "google/gemini-2.5-flash",
+                "base_url": "https://openrouter.ai/api/v1",
+                "temperature": 0.5,
+                "max_tokens": 1500
+              },
+              "system_prompt": "你是科普写作团队的监督者，负责指导科普作家将复杂的量子力学概念转化为公众易于理解的内容。",
+              "user_prompt": "请指导科普作家创作一篇既科学准确又通俗易懂的量子力学科普文章。",
+              "max_iterations": 8
+            },
+            "agent_configs": [
+              {
+                "agent_id": "science_writer",
+                "agent_name": "科普作家",
+                "llm_config": {
+                  "provider": "openrouter",
+                  "model": "google/gemini-2.5-flash",
+                  "base_url": "https://openrouter.ai/api/v1",
+                  "temperature": 0.6,
+                  "max_tokens": 3000
+                },
+                "system_prompt": "你是一位专业的科普作家，擅长将复杂的科学概念转化为公众易于理解的内容。你的任务是整合理论和实验团队的内容，创作一篇优秀的量子力学科普文章。",
+                "user_prompt": "请基于理论物理学家和实验团队提供的内容，撰写一篇结构清晰、内容准确、通俗易懂的量子力学科普文章。文章应包括：1)量子力学简介 2)核心概念解释 3)重要实验 4)现代应用 5)未来展望。",
+                "tools": [],
+                "max_iterations": 6
+              }
+            ]
+          }
+        ],
+        "dependencies": {
+          "experiment_team": ["theory_team"],
+          "writing_team": ["theory_team", "experiment_team"]
+        },
+        "global_config": {
+          "max_execution_time": 1800,
+          "enable_streaming": true,
+          "output_format": "detailed"
+        }
+      }'
+
+    # 2. 启动团队执行
+    curl -X POST "http://localhost:8000/api/v1/hierarchical-teams/{team_id}/execute" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "execution_config": {
+          "stream_events": true,
+          "save_intermediate_results": true,
+          "max_parallel_teams": 2
+        }
+      }'
+
+    # 3. 监听执行过程的实时事件
+    curl -N "http://localhost:8000/api/v1/executions/{execution_id}/stream"
+
+    # 4. 查询最终执行结果
+    curl "http://localhost:8000/api/v1/executions/{execution_id}/results"
+
+    # 5. 获取格式化的科普文章
+    curl -X POST "http://localhost:8000/api/v1/executions/{execution_id}/results/format" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "output_template": {
+          "title": "量子力学科普文章",
+          "abstract": "{从所有团队结果中提取文章摘要}",
+          "introduction": "{量子力学简介和背景}",
+          "core_concepts": {
+            "wave_function": "{波函数概念解释}",
+            "uncertainty_principle": "{不确定性原理}",
+            "quantum_superposition": "{量子叠加态}",
+            "quantum_entanglement": "{量子纠缠}"
+          },
+          "key_experiments": {
+            "double_slit": "{双缝实验描述}",
+            "bell_test": "{贝尔不等式实验}",
+            "other_experiments": "{其他重要实验}"
+          },
+          "modern_applications": {
+            "quantum_computing": "{量子计算应用}",
+            "quantum_communication": "{量子通信技术}",
+            "quantum_sensing": "{量子传感技术}"
+          },
+          "future_prospects": "{量子力学未来发展方向}",
+          "conclusion": "{文章总结}"
+        },
+        "extraction_rules": {
+          "abstract": "总结整篇文章的核心内容，不超过200字",
+          "introduction": "提取量子力学的基本介绍和历史背景",
+          "core_concepts": "详细解释量子力学的核心概念，使用通俗易懂的语言",
+          "key_experiments": "描述验证量子力学的关键实验及其意义",
+          "modern_applications": "介绍量子力学在现代科技中的实际应用",
+          "future_prospects": "展望量子力学技术的未来发展方向",
+          "conclusion": "总结量子力学的重要性和影响"
+        }
+      }'
+    ```

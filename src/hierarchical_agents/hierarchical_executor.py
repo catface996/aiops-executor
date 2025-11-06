@@ -504,13 +504,14 @@ class HierarchicalExecutor:
             agent_result = await self._execute_agent(selected_agent, team_context)
             agent_results[selected_agent_id] = agent_result
             
-            # Emit agent completion event
+            # Emit agent completion event with full content
+            full_result = str(agent_result.get("output", ""))
             await self.event_manager.emit_agent_completed(
                 execution_id=team_context.execution_id,
                 team_id=team_context.team_id,
                 agent_id=selected_agent_id,
                 agent_name=selected_agent.config.agent_name if hasattr(selected_agent, 'config') else selected_agent_id,
-                result=str(agent_result.get("output", ""))[:200] + "..."
+                result=full_result  # Send complete result without truncation
             )
             
             return agent_results
