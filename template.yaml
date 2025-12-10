@@ -11,15 +11,16 @@ Globals:
       - x86_64
     Environment:
       Variables:
-        AWS_BEDROCK_API_KEY: !Ref BedrockApiKey
         AWS_BEDROCK_MODEL_ID: !Ref BedrockModelId
         DEBUG: !Ref DebugMode
+        USE_IAM_ROLE: !Ref UseIAMRole
 
 Parameters:
   BedrockApiKey:
     Type: String
-    Description: AWS Bedrock API Key
+    Description: AWS Bedrock API Key (optional, leave empty to use IAM Role authentication)
     NoEcho: true
+    Default: ""
     
   BedrockModelId:
     Type: String
@@ -33,6 +34,14 @@ Parameters:
     AllowedValues:
       - "true"
       - "false"
+  
+  UseIAMRole:
+    Type: String
+    Description: Use IAM Role authentication instead of API Key (recommended for production)
+    Default: "true"
+    AllowedValues:
+      - "true"
+      - "false"
 
 Resources:
   # Lambda Function for Agent Execution
@@ -43,8 +52,17 @@ Resources:
       CodeUri: .
       Handler: lambda_handler.lambda_handler
       Description: Execute hierarchical multi-agent systems
+      Environment:
+        Variables:
+          AWS_BEDROCK_API_KEY: !Ref BedrockApiKey
       Policies:
         - AWSLambdaBasicExecutionRole
+        - Statement:
+          - Effect: Allow
+            Action:
+              - bedrock:InvokeModel
+              - bedrock:InvokeModelWithResponseStream
+            Resource: "*"
       Events:
         ExecuteAgents:
           Type: Api

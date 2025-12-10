@@ -60,9 +60,28 @@ aws configure
 # - Default output format (json)
 ```
 
-### 3. 获取 AWS Bedrock API Key
+### 3. 配置 AWS 认证
 
-确保您有有效的 AWS Bedrock API Key。
+系统支持两种认证方式：
+
+#### 方式 A: IAM Role 认证（推荐，用于生产部署）
+
+无需配置 API Key，Lambda 函数会自动使用 IAM 角色访问 Bedrock：
+
+- 更高的安全性
+- 自动凭证轮换
+- 符合 AWS 最佳实践
+
+#### 方式 B: API Key 认证（用于本地开发和测试）
+
+获取 AWS Bedrock API Key：
+
+1. 登录 AWS 控制台
+2. 导航到 AWS Bedrock 服务
+3. 创建 API Key
+4. 安全存储 API Key
+
+详细的认证配置指南请参考：[认证配置指南](AUTHENTICATION_GUIDE.md)
 
 ## 部署步骤
 
@@ -83,11 +102,27 @@ sam build
 sam deploy --guided
 ```
 
+**使用 IAM Role 认证部署（推荐）**：
+
 按照提示输入：
 - Stack Name: `hierarchical-agents-api`
 - AWS Region: `us-east-1`（或您的首选区域）
+- Parameter BedrockApiKey: `(直接按回车，留空)`
+- Parameter BedrockModelId: `us.anthropic.claude-sonnet-4-20250514-v1:0`
+- Parameter UseIAMRole: `true`
+- Parameter DebugMode: `false`
+- Confirm changes before deploy: `Y`
+- Allow SAM CLI IAM role creation: `Y`
+- Save arguments to configuration file: `Y`
+
+**使用 API Key 认证部署（本地测试）**：
+
+按照提示输入：
+- Stack Name: `hierarchical-agents-api`
+- AWS Region: `us-east-1`
 - Parameter BedrockApiKey: `your-bedrock-api-key`
 - Parameter BedrockModelId: `us.anthropic.claude-sonnet-4-20250514-v1:0`
+- Parameter UseIAMRole: `false`
 - Parameter DebugMode: `false`
 - Confirm changes before deploy: `Y`
 - Allow SAM CLI IAM role creation: `Y`

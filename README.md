@@ -41,32 +41,118 @@
 pip install strands strands-tools
 ```
 
-### 配置 AWS Bedrock API Key
+### 配置 AWS 认证
 
-有三种方式配置 API Key：
+系统支持两种灵活的认证方式，可根据部署场景自动切换：
 
-**方式 1: 使用 .env 文件（推荐）**
+#### 认证方式 1: API Key 认证（本地开发和调试）
+
+**适用场景**：本地开发、测试、调试
+
+API Key 认证有三种配置方式：
+
+**方式 1-1: 使用 .env 文件（推荐）**
 
 ```bash
 # 复制示例文件
 cp .env.example .env
 
-# 编辑 .env 文件，填入你的 API Key
+# 编辑 .env 文件，填入你的配置
 # AWS_BEDROCK_API_KEY=your-api-key-here
+# AWS_BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-20250514-v1:0
+# AWS_REGION=us-east-1
 ```
 
-**方式 2: 使用环境变量**
+**方式 1-2: 使用环境变量**
 
 ```bash
 export AWS_BEDROCK_API_KEY='your-api-key'
+export AWS_BEDROCK_MODEL_ID='us.anthropic.claude-sonnet-4-20250514-v1:0'
+export AWS_REGION='us-east-1'
 ```
 
-**方式 3: 在代码中设置**
+**方式 1-3: 在代码中设置**
 
 ```python
 from config import setup_config
 
-setup_config(api_key='your-api-key')
+setup_config(
+    api_key='your-api-key',
+    model_id='us.anthropic.claude-sonnet-4-20250514-v1:0',
+    aws_region='us-east-1'
+)
+```
+
+#### 认证方式 2: IAM Role 认证（AWS 部署）
+
+**适用场景**：AWS Lambda、EC2、ECS 等 AWS 环境部署
+
+IAM Role 认证使用 AWS 服务的执行角色，无需管理 API Key，更加安全。
+
+**方式 2-1: 使用 .env 文件**
+
+```bash
+# 编辑 .env 文件
+# USE_IAM_ROLE=true
+# AWS_REGION=us-east-1
+# AWS_BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-20250514-v1:0
+```
+
+**方式 2-2: 使用环境变量**
+
+```bash
+export USE_IAM_ROLE=true
+export AWS_REGION='us-east-1'
+export AWS_BEDROCK_MODEL_ID='us.anthropic.claude-sonnet-4-20250514-v1:0'
+```
+
+**方式 2-3: 在代码中设置**
+
+```python
+from config import setup_config
+
+setup_config(
+    use_iam_role=True,
+    model_id='us.anthropic.claude-sonnet-4-20250514-v1:0',
+    aws_region='us-east-1'
+)
+```
+
+**IAM Role 权限要求**：
+
+确保您的 Lambda 函数或 EC2 实例的 IAM 角色具有以下权限：
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "bedrock:InvokeModel",
+        "bedrock:InvokeModelWithResponseStream"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+#### 认证模式自动检测
+
+系统会根据配置自动选择合适的认证方式：
+
+1. **优先级 1**：如果设置了 `AWS_BEDROCK_API_KEY`，使用 API Key 认证
+2. **优先级 2**：如果设置了 `USE_IAM_ROLE=true`，使用 IAM Role 认证
+3. **自动检测**：如果在 AWS Lambda 环境中运行且未配置 API Key，自动切换到 IAM Role 认证
+
+**查看当前认证模式**：
+
+```python
+from config import get_config
+
+config = get_config()
+print(f"认证模式: {config.authentication_mode}")  # 输出: 'api_key' 或 'iam_role'
 ```
 
 ### 运行示例
@@ -277,14 +363,45 @@ agent, tracker, team_names = (
 
 ### 快速部署
 
-```bash
-# 部署到 AWS
-./deploy.sh
+#### 本地开发部署（API Key 认证）
 
-# 测试 API
+```bash
+# 1. 配置 API Key
+export AWS_BEDROCK_API_KEY='your-api-key'
+export AWS_REGION='us-east-1'
+
+# 2. 运行本地测试
+python test_api.py
+```
+
+#### AWS 生产部署（IAM Role 认证）
+
+```bash
+# 1. 配置 SAM 部署参数（使用 IAM Role 认证）
+sam deploy --guided
+
+# 部署时设置:
+# - UseIAMRole: true
+# - BedrockApiKey: (留空)
+# - AWS Region: us-east-1
+
+# 2. 测试 API
 curl -X POST https://your-api-endpoint.com/prod/execute \
   -H "Content-Type: application/json" \
   -d @examples/simple_request.json
+```
+
+#### 混合模式部署（支持两种认证）
+
+您也可以配置为支持两种认证方式，系统会自动选择：
+
+```bash
+# SAM 部署时设置:
+# - UseIAMRole: false
+# - BedrockApiKey: your-api-key (可选)
+
+# 如果提供了 API Key，使用 API Key 认证
+# 如果没有提供 API Key，系统自动切换到 IAM Role 认证
 ```
 
 ### API 特性
@@ -294,9 +411,36 @@ curl -X POST https://your-api-endpoint.com/prod/execute \
 - ✅ **AWS 原生服务**：基于 Lambda + API Gateway + Bedrock
 - ✅ **Bedrock Agent Core 兼容**：完全兼容 AWS Bedrock Agent Core 部署
 - ✅ **无服务器架构**：自动扩展，按使用付费
+- ✅ **灵活认证机制**：支持 API Key 和 IAM Role 两种认证方式
+
+### API 认证配置示例
+
+**示例 1: 本地开发（API Key）**
+
+```python
+# lambda_handler.py 本地测试
+import os
+os.environ['AWS_BEDROCK_API_KEY'] = 'your-api-key'
+os.environ['AWS_REGION'] = 'us-east-1'
+
+from lambda_handler import test_locally
+test_locally()
+```
+
+**示例 2: AWS Lambda 部署（IAM Role）**
+
+Lambda 函数会自动检测运行环境并使用 IAM Role 认证：
+
+```python
+# Lambda 环境变量配置
+USE_IAM_ROLE=true
+AWS_REGION=us-east-1
+AWS_BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-20250514-v1:0
+```
 
 ### 详细文档
 
+- [认证配置指南](docs/AUTHENTICATION_GUIDE.md) - 详细的认证配置说明
 - [API 快速入门](README_API.md)
 - [API 参考文档](docs/API_REFERENCE.md)
 - [部署指南](docs/API_DEPLOYMENT.md)
