@@ -361,9 +361,16 @@ agent, tracker, team_names = (
 
 系统提供 HTTP API 接口，支持通过 RESTful API 动态创建和执行层级多智能体系统。
 
+### 部署方式
+
+系统支持两种部署方式：
+
+1. **AWS Lambda 部署**（无服务器）- 适合按需使用、自动扩展的场景
+2. **EC2/Docker 部署**（独立服务器）- 适合需要持续运行、自定义环境的场景
+
 ### 快速部署
 
-#### 本地开发部署（API Key 认证）
+#### 方式 1: 本地开发部署（API Key 认证）
 
 ```bash
 # 1. 配置 API Key
@@ -374,7 +381,7 @@ export AWS_REGION='us-east-1'
 python test_api.py
 ```
 
-#### AWS 生产部署（IAM Role 认证）
+#### 方式 2: AWS Lambda 部署（无服务器，IAM Role 认证）
 
 ```bash
 # 1. 配置 SAM 部署参数（使用 IAM Role 认证）
@@ -389,6 +396,181 @@ sam deploy --guided
 curl -X POST https://your-api-endpoint.com/prod/execute \
   -H "Content-Type: application/json" \
   -d @examples/simple_request.json
+```
+
+#### 方式 3: EC2/Docker 部署（独立服务器）
+
+系统提供独立的 HTTP 服务器，可以在 EC2 实例或任何支持 Docker 的环境中运行。
+
+##### 使用 Docker Compose（推荐用于本地开发和测试）
+
+```bash
+# 1. 配置环境变量
+cp .env.example .env
+# 编辑 .env 文件，配置 AWS 认证信息
+
+# 2. 构建并启动容器
+docker-compose up -d
+
+# 3. 查看日志
+docker-compose logs -f
+
+# 4. 测试 API
+curl http://localhost:8080/health
+curl -X POST http://localhost:8080/execute \
+  -H "Content-Type: application/json" \
+  -d @examples/simple_request.json
+
+# 5. 停止服务
+docker-compose down
+```
+
+##### 使用 Docker（用于生产部署）
+
+```bash
+# 1. 构建镜像
+docker build -t hierarchical-agents:latest .
+
+# 2. 运行容器
+docker run -d \
+  --name hierarchical-agents-api \
+  -p 8080:8080 \
+  -e AWS_BEDROCK_API_KEY='your-api-key' \
+  -e AWS_REGION='us-east-1' \
+  -e AWS_BEDROCK_MODEL_ID='us.anthropic.claude-sonnet-4-20250514-v1:0' \
+  hierarchical-agents:latest
+
+# 3. 查看日志
+docker logs -f hierarchical-agents-api
+
+# 4. 停止容器
+docker stop hierarchical-agents-api
+docker rm hierarchical-agents-api
+```
+
+##### 直接运行 HTTP 服务器（不使用 Docker）
+
+```bash
+# 1. 安装额外依赖
+pip install flask flask-cors gunicorn
+
+# 2. 配置环境变量
+export AWS_BEDROCK_API_KEY='your-api-key'
+export AWS_REGION='us-east-1'
+export PORT=8080
+
+# 3. 运行服务器
+python http_server.py
+
+# 或使用 gunicorn（生产环境推荐）
+gunicorn --bind 0.0.0.0:8080 --workers 4 --threads 2 --timeout 300 http_server:app
+```
+
+##### 在 EC2 上部署
+
+**1. 准备 EC2 实例**
+
+```bash
+# 启动 Amazon Linux 2023 或 Ubuntu EC2 实例
+# 配置安全组，开放端口 8080（或你选择的端口）
+# 为 EC2 实例分配 IAM 角色，包含 Bedrock 访问权限
+```
+
+**2. 安装 Docker**
+
+```bash
+# Amazon Linux 2023
+sudo yum update -y
+sudo yum install -y docker
+sudo systemctl start docker
+sudo systemctl enable docker
+sudo usermod -a -G docker ec2-user
+
+# Ubuntu
+sudo apt-get update
+sudo apt-get install -y docker.io docker-compose
+sudo systemctl start docker
+sudo systemctl enable docker
+sudo usermod -a -G docker ubuntu
+```
+
+**3. 部署应用**
+
+```bash
+# 克隆代码仓库
+git clone https://github.com/catface996/hierarchical-agents.git
+cd hierarchical-agents
+
+# 配置环境变量（使用 IAM Role 认证）
+cat > .env << EOF
+USE_IAM_ROLE=true
+AWS_REGION=us-east-1
+AWS_BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-20250514-v1:0
+PORT=8080
+DEBUG=false
+EOF
+
+# 使用 Docker Compose 部署
+docker-compose up -d
+
+# 或使用 Docker 直接部署
+docker build -t hierarchical-agents:latest .
+docker run -d \
+  --name hierarchical-agents-api \
+  -p 8080:8080 \
+  --restart unless-stopped \
+  -e USE_IAM_ROLE=true \
+  -e AWS_REGION=us-east-1 \
+  -e AWS_BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-20250514-v1:0 \
+  hierarchical-agents:latest
+```
+
+**4. 验证部署**
+
+```bash
+# 健康检查
+curl http://localhost:8080/health
+
+# 从外部访问（替换为你的 EC2 公网 IP）
+curl http://your-ec2-public-ip:8080/health
+
+# 测试执行
+curl -X POST http://your-ec2-public-ip:8080/execute \
+  -H "Content-Type: application/json" \
+  -d @examples/simple_request.json
+```
+
+**5. 配置反向代理（可选，推荐用于生产环境）**
+
+使用 Nginx 作为反向代理，支持 HTTPS 和负载均衡：
+
+```bash
+# 安装 Nginx
+sudo yum install -y nginx  # Amazon Linux
+# 或
+sudo apt-get install -y nginx  # Ubuntu
+
+# 配置 Nginx
+sudo cat > /etc/nginx/conf.d/hierarchical-agents.conf << 'EOF'
+server {
+    listen 80;
+    server_name your-domain.com;
+
+    location / {
+        proxy_pass http://localhost:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;
+        proxy_connect_timeout 75s;
+    }
+}
+EOF
+
+# 启动 Nginx
+sudo systemctl start nginx
+sudo systemctl enable nginx
 ```
 
 #### 混合模式部署（支持两种认证）
@@ -412,6 +594,65 @@ curl -X POST https://your-api-endpoint.com/prod/execute \
 - ✅ **Bedrock Agent Core 兼容**：完全兼容 AWS Bedrock Agent Core 部署
 - ✅ **无服务器架构**：自动扩展，按使用付费
 - ✅ **灵活认证机制**：支持 API Key 和 IAM Role 两种认证方式
+- ✅ **多种部署选项**：支持 Lambda 无服务器部署和 EC2/Docker 独立部署
+
+### 环境变量配置
+
+#### 必需的环境变量
+
+| 变量名 | 说明 | 示例 | Lambda | EC2/Docker |
+|--------|------|------|--------|-----------|
+| `AWS_REGION` | AWS 区域 | `us-east-1` | ✅ | ✅ |
+| `AWS_BEDROCK_MODEL_ID` | Bedrock 模型 ID | `us.anthropic.claude-sonnet-4-20250514-v1:0` | ✅ | ✅ |
+
+#### 认证相关环境变量（二选一）
+
+| 变量名 | 说明 | 示例 | Lambda | EC2/Docker |
+|--------|------|------|--------|-----------|
+| `AWS_BEDROCK_API_KEY` | API Key 认证 | `your-api-key` | ✅ | ✅ |
+| `USE_IAM_ROLE` | 启用 IAM Role 认证 | `true` | ✅ | ✅ |
+
+#### EC2/Docker 特定环境变量（可选）
+
+| 变量名 | 说明 | 默认值 | EC2/Docker |
+|--------|------|--------|-----------|
+| `PORT` | HTTP 服务器端口 | `8080` | ✅ |
+| `HOST` | HTTP 服务器监听地址 | `0.0.0.0` | ✅ |
+| `DEBUG` | 调试模式 | `false` | ✅ |
+| `AWS_ACCESS_KEY_ID` | AWS 访问密钥（本地测试 IAM 认证用） | - | ✅ |
+| `AWS_SECRET_ACCESS_KEY` | AWS 密钥（本地测试 IAM 认证用） | - | ✅ |
+
+### Lambda vs EC2 部署对比
+
+| 特性 | AWS Lambda | EC2/Docker |
+|------|-----------|------------|
+| **部署复杂度** | 简单（SAM/CloudFormation） | 中等（需要配置服务器） |
+| **扩展性** | 自动扩展 | 需要手动配置或使用 Auto Scaling |
+| **成本** | 按请求计费 | 按实例运行时间计费 |
+| **冷启动** | 有冷启动延迟 | 无冷启动 |
+| **运行时限制** | 15 分钟最大执行时间 | 无限制 |
+| **资源限制** | 最大 10GB 内存 | 可根据实例类型灵活配置 |
+| **适用场景** | 间歇性请求、低到中等负载 | 持续运行、高负载、长时间任务 |
+| **维护** | 无需维护服务器 | 需要维护服务器和更新 |
+| **网络控制** | 有限（需要 VPC 配置） | 完全控制 |
+| **自定义环境** | 受限 | 完全控制 |
+
+### 部署模式选择建议
+
+#### 选择 Lambda 部署的场景：
+- ✅ 请求量波动大，需要自动扩展
+- ✅ 单次任务执行时间 < 15 分钟
+- ✅ 希望最小化运维工作
+- ✅ 按需使用，降低成本
+- ✅ 快速原型和测试
+
+#### 选择 EC2/Docker 部署的场景：
+- ✅ 需要持续运行的服务
+- ✅ 任务执行时间 > 15 分钟
+- ✅ 需要更多内存或 CPU 资源
+- ✅ 需要完全控制运行环境
+- ✅ 需要与私有网络紧密集成
+- ✅ 已有容器化基础设施
 
 ### API 认证配置示例
 
@@ -441,6 +682,7 @@ AWS_BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-20250514-v1:0
 ### 详细文档
 
 - [认证配置指南](docs/AUTHENTICATION_GUIDE.md) - 详细的认证配置说明
+- [EC2 部署指南](docs/EC2_DEPLOYMENT_GUIDE.md) - 完整的 EC2 部署步骤和最佳实践
 - [API 快速入门](README_API.md)
 - [API 参考文档](docs/API_REFERENCE.md)
 - [部署指南](docs/API_DEPLOYMENT.md)
@@ -461,17 +703,29 @@ AWS_BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-20250514-v1:0
 - `output_formatter.py` - 输出格式化
 
 ### HTTP API
-- `lambda_handler.py` - Lambda 函数入口
+- `lambda_handler.py` - Lambda 函数入口（AWS Lambda 部署）
+- `http_server.py` - HTTP 服务器（EC2/Docker 部署）
 - `hierarchy_executor.py` - 层级执行器
 - `api_models.py` - API 数据模型
-- `template.yaml` - AWS SAM 部署模板
-- `deploy.sh` - 自动化部署脚本
-- `test_api.py` - API 测试脚本
+
+### 部署配置
+- `template.yaml` - AWS SAM 部署模板（Lambda）
+- `Dockerfile` - Docker 容器配置（EC2/容器部署）
+- `docker-compose.yml` - Docker Compose 配置
+- `deploy.sh` - 自动化部署脚本（Lambda）
+- `.env.example` - 环境变量配置模板
 
 ### 测试和示例
+- `test_api.py` - Lambda API 测试脚本
+- `test_http_server.py` - HTTP 服务器测试脚本
 - `test/` - 测试文件目录
 - `examples/` - API 请求示例
+
+### 文档
 - `docs/` - 详细文档
+- `DEPLOYMENT_QUICKREF.md` - 部署快速参考
+- `README_API.md` - API 快速入门
+- `README.md` - 主文档（本文件）
 
 ## 许可证
 

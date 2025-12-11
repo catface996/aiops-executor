@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  hierarchical-agents:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hierarchical-agents-api
+    ports:
+      - "8080:8080"
+    environment:
+      # AWS Configuration - Load from .env file
+      - AWS_BEDROCK_API_KEY=${AWS_BEDROCK_API_KEY:-}
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - AWS_BEDROCK_MODEL_ID=${AWS_BEDROCK_MODEL_ID:-us.anthropic.claude-sonnet-4-20250514-v1:0}
+      - USE_IAM_ROLE=${USE_IAM_ROLE:-false}
+      
+      # Server Configuration
+      - PORT=8080
+      - HOST=0.0.0.0
+      - DEBUG=${DEBUG:-false}
+      
+      # AWS Credentials (optional, for IAM authentication)
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN:-}
+    env_file:
+      - .env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - hierarchical-agents-network
+
+networks:
+  hierarchical-agents-network:
+    driver: bridge

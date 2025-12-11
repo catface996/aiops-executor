@@ -4,3 +4,10 @@ strands-tools>=0.1.0
 
 # AWS Bedrock support (if needed beyond strands)
 boto3>=1.34.0
+
+# HTTP Server dependencies (only needed for EC2/Docker deployment)
+# Install with: pip install -r requirements.txt flask flask-cors gunicorn
+# Or automatically installed in Docker
+# flask>=3.0.0
+# flask-cors>=4.0.0
+# gunicorn>=21.2.0
