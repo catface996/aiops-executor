@@ -83,7 +83,14 @@ def create_app(config_name: str = None) -> Flask:
     Swagger(app, config=swagger_config, template=swagger_template)
 
     # 初始化数据库
-    init_db(app)
+    db = init_db(app)
+
+    # 注册请求结束时的会话清理
+    @app.teardown_appcontext
+    def shutdown_session(exception=None):
+        """每个请求结束后清理数据库会话"""
+        if db:
+            db.remove()
 
     # 初始化配置（AWS 认证等）
     try:

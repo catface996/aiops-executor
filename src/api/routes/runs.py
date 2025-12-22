@@ -11,7 +11,7 @@ from ..schemas.run_schemas import (
     RunStartRequest, RunListRequest, RunStreamRequest, RunCancelRequest
 )
 from ..schemas.common import IdRequest
-from ...db.database import get_db_session
+from ...db.database import get_db_session, db
 from ...db.repositories import RunRepository
 from ...runner.run_manager import RunManager
 from ...streaming.sse_manager import SSERegistry
@@ -21,7 +21,11 @@ runs_bp = Blueprint('runs', __name__)
 
 def get_repo():
     """获取运行记录仓库"""
-    return RunRepository(get_db_session())
+    # 确保使用新的会话，能看到其他线程提交的数据
+    if db:
+        db.remove()  # 清理当前线程的会话
+    session = get_db_session()
+    return RunRepository(session)
 
 
 def get_run_manager():
