@@ -1,5 +1,9 @@
-# Use Python 3.12 slim image for smaller size
-FROM python:3.12-slim
+# Multi-platform base image (supports amd64, arm64)
+FROM --platform=$TARGETPLATFORM python:3.12-slim
+
+# Build arguments for multi-platform support
+ARG TARGETPLATFORM
+ARG BUILDPLATFORM
 
 # Set working directory
 WORKDIR /app
@@ -7,16 +11,20 @@ WORKDIR /app
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PORT=8080
+    PORT=8080 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# Install system dependencies
+# Install system dependencies (platform-agnostic)
 # - gcc: for compiling Python extensions
-# - default-libmysqlclient-dev: for MySQL client (optional, using pymysql instead)
-# - pkg-config: for mysqlclient compilation
+# - libffi-dev: for cryptography package (required for MySQL 8.0)
+# - curl: for health checks
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
+    libffi-dev \
     curl \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
 # Copy requirements first for better caching
 COPY requirements.txt .

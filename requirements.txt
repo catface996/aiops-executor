@@ -2,9 +2,9 @@
 # Core dependencies for hierarchical agent system
 # =============================================================================
 
-# Agent Framework (install separately if using private registry)
-# strands>=0.1.0
-# strands-tools>=0.1.0
+# Agent Framework
+strands-agents>=0.1.0
+strands-agents-tools>=0.1.0
 
 # AWS Bedrock support
 boto3>=1.34.0

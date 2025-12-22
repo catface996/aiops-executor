@@ -34,12 +34,16 @@ from .output_formatter import (
     print_team_start,
     print_team_thinking,
     print_team_complete,
+    print_team_summary,
     print_team_warning,
     print_team_error,
     print_team_duplicate_warning,
     print_global_start,
     print_global_thinking,
-    print_global_complete
+    print_global_dispatch,
+    print_global_summary,
+    print_global_complete,
+    set_current_team
 )
 
 # 依赖 strands 的模块使用延迟导入
@@ -87,12 +91,16 @@ __all__ = [
     'print_team_start',
     'print_team_thinking',
     'print_team_complete',
+    'print_team_summary',
     'print_team_warning',
     'print_team_error',
     'print_team_duplicate_warning',
     'print_global_start',
     'print_global_thinking',
+    'print_global_dispatch',
+    'print_global_summary',
     'print_global_complete',
+    'set_current_team',
     # hierarchy_system (lazy)
     'HierarchyBuilder',
     'GlobalSupervisorFactory',

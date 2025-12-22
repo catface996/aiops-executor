@@ -1,3 +1,12 @@
+# =============================================================================
+# Production Docker Compose - Uses pre-built images from Docker Hub
+#
+# Usage:
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# Supports: linux/amd64, linux/arm64 (Mac M1/M2, AWS Graviton, etc.)
+# =============================================================================
+
 services:
   # MySQL Database
   mysql:
@@ -22,11 +31,9 @@ services:
     networks:
       - hierarchical-agents-network
 
-  # API Server
+  # API Server (Pre-built from Docker Hub)
   api:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: catface996/hierarchical-agents:latest
     container_name: hierarchical-agents-api
     restart: unless-stopped
     ports:
@@ -40,19 +47,19 @@ services:
       - DB_USER=root
       - DB_PASSWORD=${MYSQL_ROOT_PASSWORD:-hierarchical123}
 
-      # AWS Configuration (认证优先级: API Key > AK/SK > IAM Role)
-      # 方式 1: API Key 认证（最高优先级）
+      # AWS Configuration (Auth priority: API Key > AK/SK > IAM Role)
+      # Method 1: API Key authentication (highest priority)
       - AWS_BEDROCK_API_KEY=${AWS_BEDROCK_API_KEY:-}
 
-      # 方式 2: AK/SK 认证（中等优先级）
+      # Method 2: AK/SK authentication (medium priority)
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
       - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN:-}
 
-      # 方式 3: IAM Role 认证（最低优先级，适用于 AWS 部署环境）
+      # Method 3: IAM Role authentication (lowest priority, for AWS deployment)
       - USE_IAM_ROLE=${USE_IAM_ROLE:-false}
 
-      # AWS Region 和模型配置
+      # AWS Region and model configuration
       - AWS_REGION=${AWS_REGION:-us-east-1}
       - AWS_BEDROCK_MODEL_ID=${AWS_BEDROCK_MODEL_ID:-us.anthropic.claude-sonnet-4-20250514-v1:0}
 

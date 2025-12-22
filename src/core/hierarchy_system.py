@@ -25,10 +25,11 @@ from strands_tools import calculator, http_request
 from .output_formatter import (
     print_worker_start, print_worker_thinking, print_worker_complete,
     print_worker_warning, print_worker_error,
-    print_team_start, print_team_thinking, print_team_complete,
+    print_team_start, print_team_thinking, print_team_complete, print_team_summary,
     print_team_warning, print_team_error, print_team_duplicate_warning,
-    print_global_start, print_global_thinking, print_global_complete,
-    OutputFormatter
+    print_global_start, print_global_thinking, print_global_dispatch,
+    print_global_summary, print_global_complete,
+    set_current_team, OutputFormatter
 )
 
 
@@ -434,10 +435,12 @@ class WorkerAgentFactory:
             model=config.model,
         )
         response = agent(task)
-        
+
         # 打印完成信息
         print_worker_complete(config.name)
-        result = OutputFormatter.format_result_message(config.name, response)
+        # 将 AgentResult 转为字符串
+        response_text = str(response) if response else ""
+        result = OutputFormatter.format_result_message(config.name, response_text)
         
         # 记录执行结果
         WorkerAgentFactory._worker_call_tracker[call_key] = result
@@ -450,29 +453,31 @@ class WorkerAgentFactory:
     def create_worker(config: WorkerConfig) -> Callable:
         """
         创建 Worker Agent
-        
+
         根据配置创建一个 Worker Agent 函数，该函数会：
         1. 检查是否已执行
         2. 检查是否重复任务
         3. 执行任务并返回结果
-        
+
         Args:
             config: Worker 配置
-            
+
         Returns:
             Worker Agent 函数（已应用 @tool 装饰器）
         """
-        @tool
-        def worker_agent(task: str) -> str:
+        # 生成符合 AWS Bedrock 规范的函数名（使用 worker ID 确保唯一性）
+        func_name = f"worker_{config.id.replace('-', '_')}"
+
+        def worker_agent_impl(task: str) -> str:
             # 1. 检查是否已执行
             if executed_msg := WorkerAgentFactory._check_worker_executed(config):
                 return executed_msg
-            
+
             # 2. 检查重复任务
             call_key = WorkerAgentFactory._check_duplicate_task(config, task)
             if isinstance(call_key, str) and call_key.startswith('['):
                 return call_key  # 返回重复消息
-            
+
             # 3. 执行任务
             try:
                 return WorkerAgentFactory._execute_worker(config, task, call_key)
@@ -480,12 +485,20 @@ class WorkerAgentFactory:
                 error_msg = f"[{config.name}] 错误: {str(e)}"
                 print_worker_error(error_msg)
                 return error_msg
-        
-        # 设置函数元数据
-        worker_agent.__doc__ = f"{config.name} - {config.role}"
-        worker_agent.__name__ = config.name.lower().replace(" ", "_")
-        
-        return worker_agent
+
+        # 创建具有正确名称的函数（在应用 @tool 装饰器之前）
+        doc_string = f"调用 {config.name} ({config.role}) 来执行任务"
+        worker_agent = types.FunctionType(
+            worker_agent_impl.__code__,
+            worker_agent_impl.__globals__,
+            name=func_name,
+            argdefs=worker_agent_impl.__defaults__,
+            closure=worker_agent_impl.__closure__
+        )
+        worker_agent.__doc__ = doc_string
+
+        # 应用 @tool 装饰器
+        return tool(worker_agent)
     
     @staticmethod
     def reset_tracker():
@@ -609,13 +622,71 @@ class TeamSupervisorFactory:
             enhanced_task_parts.insert(1, context_sharing_content[0])
             enhanced_task_parts.append(context_sharing_content[1])
         
-        # 添加执行规则
-        enhanced_task_parts.append("""
-【重要规则】：
-- 只能调用"未执行"（⭕）的团队成员
-- 已执行（✅）的成员不能再次调用，他们的结果已经可用
-- 如果需要已执行成员的结果，直接引用即可，不要重新调用
-- 每个成员只能被调用一次
+        # 获取团队名称用于标签
+        team_name = config.name
+        worker_list = ", ".join(worker_names)
+        num_workers = len(worker_names)
+
+        # 添加执行规则 - 使用严格的英文约束和循环模式
+        enhanced_task_parts.append(f"""
+================================================================================
+CRITICAL INSTRUCTIONS FOR TEAM SUPERVISOR - NO NEGOTIATION
+================================================================================
+
+You are the TEAM SUPERVISOR of [{team_name}].
+Your ONLY job is to delegate tasks to your team members (workers).
+
+[ABSOLUTE RULES - VIOLATION IS FORBIDDEN]
+
+1. You must NEVER answer questions directly. NO EXCEPTIONS.
+2. You must ALWAYS call worker tools to handle the task.
+3. Each worker can ONLY be called ONCE.
+4. **CRITICAL: You MUST call EVERY worker ({num_workers} total). Calling only 1 worker is NOT acceptable.**
+
+[YOUR TEAM MEMBERS - YOU MUST CALL ALL {num_workers} OF THEM]
+{worker_list}
+
+================================================================================
+MANDATORY ITERATIVE WORKFLOW - YOU MUST ITERATE {num_workers} TIMES
+================================================================================
+
+You have {num_workers} workers. You MUST iterate {num_workers} times to call each one:
+
+**ITERATION 1:**
+  [Team: {team_name} | Supervisor] THINKING: I have {num_workers} workers. First I will call the first worker.
+  [Team: {team_name} | Supervisor] SELECT: [First Worker Name]
+  Subtask: [specific task for first worker]
+  [Call first worker tool...]
+
+**ITERATION 2:**
+  [Team: {team_name} | Supervisor] THINKING: First worker completed. Now I must call the second worker.
+  [Team: {team_name} | Supervisor] SELECT: [Second Worker Name]
+  Subtask: [specific task for second worker]
+  [Call second worker tool...]
+
+**... continue until all {num_workers} workers are called ...**
+
+**AFTER ALL {num_workers} WORKERS COMPLETE:**
+  [Team: {team_name} | Supervisor] SUMMARY: All {num_workers} workers completed...
+  - [First Worker] contributed: ...
+  - [Second Worker] contributed: ...
+  [Compile and return integrated result]
+
+================================================================================
+EXECUTION STATUS
+================================================================================
+- Workers marked ⭕ = NOT executed yet (you MUST call these)
+- Workers marked ✅ = Already completed (do NOT call again)
+
+================================================================================
+FAILURE CONDITIONS - YOU WILL FAIL IF:
+================================================================================
+- You call fewer than {num_workers} workers
+- You call the same worker twice
+- You answer directly without calling any worker
+- You skip any worker marked ⭕
+
+**SUCCESS requires calling ALL {num_workers} workers: {worker_list}**
 """)
         
         return "\n".join(enhanced_task_parts)
@@ -675,10 +746,12 @@ class TeamSupervisorFactory:
                     callback_handler=None
                 )
                 response = supervisor(enhanced_task)
-                
+
                 # 7. 完成执行（记录结果）
                 print_team_complete(config.name)
-                result = OutputFormatter.format_result_message(config.name, response)
+                # 将 AgentResult 转为字符串
+                response_text = str(response) if response else ""
+                result = OutputFormatter.format_result_message(config.name, response_text)
                 tracker.end_call(call_id, result)
                 tracker.execution_tracker.mark_team_executed(config.name, result)
                 
@@ -740,28 +813,107 @@ class GlobalSupervisorFactory:
         # 提取团队名称列表
         team_names = [team.name for team in config.teams]
         
-        # 增强系统提示词，添加防重复指导和执行模式说明
-        execution_mode_hint = """
-【团队执行模式】：顺序执行
-- 必须一个团队完成后再调用下一个团队
-- 不能同时调用多个团队
-- 按照逻辑顺序依次调用团队
-""" if not config.parallel_execution else """
-【团队执行模式】：并行执行
-- 可以同时调用多个团队
-- 各团队独立工作，互不干扰
-- 适合任务之间没有依赖关系的场景
-"""
-        
-        enhanced_prompt = config.system_prompt + execution_mode_hint + """
+        # Build team list for prompt
+        team_list_str = "\n".join([f"  - {team.name}" for team in config.teams])
 
-重要规则:
-1. 每个团队只应该被调用一次来完成其职责范围内的任务
-2. 如果一个团队已经返回了结果，不要再次调用该团队
-3. 如果看到"该团队正在处理任务"的警告，说明团队已经在工作
-4. 整合各团队的输出时，使用已有的结果，不要重复请求
-5. 如果任务需要多个团队协作，应该调用不同的团队，而不是重复调用同一个团队
-6. 注意查看团队执行状态，只调用"未执行"（⭕）的团队
+        # Enhanced system prompt with STRICT English constraints
+        execution_mode = "SEQUENTIAL" if not config.parallel_execution else "PARALLEL"
+
+        enhanced_prompt = f"""{config.system_prompt}
+
+================================================================================
+CRITICAL INSTRUCTIONS - NO NEGOTIATION - MUST FOLLOW EXACTLY
+================================================================================
+
+You are a COORDINATOR/DISPATCHER. Your ONLY job is to delegate tasks to teams.
+
+[ABSOLUTE RULES - VIOLATION IS FORBIDDEN]
+
+1. You must NEVER answer questions directly. NO EXCEPTIONS.
+2. You must ALWAYS call team tools to handle the task.
+3. Even if the task is unclear, you MUST select the most appropriate team(s).
+4. You are NOT allowed to ask clarifying questions - just delegate to teams.
+5. You must call ALL available teams - not just one or two.
+
+[EXECUTION MODE: {execution_mode}]
+
+- Each team can ONLY be called ONCE
+- Teams marked with ✅ are already completed - do NOT call them again
+- Only call teams marked with ⭕ (not executed)
+
+[AVAILABLE TEAMS]
+{team_list_str}
+
+================================================================================
+MANDATORY ITERATIVE WORKFLOW - CRITICAL
+================================================================================
+
+You MUST follow this LOOP pattern until ALL teams have been called:
+
+┌─────────────────────────────────────────────────────────────┐
+│  ITERATION LOOP (repeat until all teams are ✅)             │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  STEP 1: THINK                                              │
+│    - Output: "[Global Supervisor] THINKING: ..."            │
+│    - Review current status: which teams are ⭕ vs ✅         │
+│    - Decide which ⭕ team to call next                       │
+│    - Explain WHY you are selecting this team                │
+│                                                             │
+│  STEP 2: SELECT (Structured Output)                         │
+│    - Output: "[Global Supervisor] SELECT: [Team Name]"      │
+│    - State the specific subtask for this team               │
+│                                                             │
+│  STEP 3: DISPATCH                                           │
+│    - Call the team tool with the subtask                    │
+│    - Wait for the team to complete                          │
+│                                                             │
+│  STEP 4: CHECK                                              │
+│    - After team completes, check if more ⭕ teams remain    │
+│    - If YES: Go back to STEP 1                              │
+│    - If NO (all teams are ✅): Proceed to SYNTHESIS          │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+
+AFTER ALL TEAMS COMPLETE:
+
+  STEP 5: SYNTHESIS
+    - Output: "[Global Supervisor] SYNTHESIS: All teams completed..."
+    - Summarize the contributions from each team
+    - Integrate all results into a coherent final answer
+    - Present the final result to the user
+
+================================================================================
+OUTPUT FORMAT REQUIREMENTS
+================================================================================
+
+ALWAYS prefix your outputs with "[Global Supervisor]" so it's clear who is speaking.
+
+Example iteration:
+```
+[Global Supervisor] THINKING: I have 2 teams available. 理论研究组 (⭕) and 应用研究组 (⭕).
+For this quantum physics question, I should start with theoretical foundations.
+
+[Global Supervisor] SELECT: 理论研究组
+Subtask: Explain the theoretical concepts of quantum entanglement.
+
+[Calls team tool...]
+
+[Global Supervisor] THINKING: 理论研究组 (✅) completed. 应用研究组 (⭕) remains.
+Now I need practical applications.
+
+[Global Supervisor] SELECT: 应用研究组
+Subtask: Explain practical applications in quantum computing.
+
+[Calls team tool...]
+
+[Global Supervisor] SYNTHESIS: All teams completed. Integrating results...
+```
+
+[CRITICAL REMINDER]
+- You are a COORDINATOR, not an executor
+- You must call ALL teams, not skip any
+- If you respond without calling any team, you have FAILED your mission
 """
         
         # 创建 Global Supervisor Agent
@@ -798,24 +950,34 @@ class GlobalSupervisorFactory:
         execution_status = tracker.execution_tracker.get_execution_status(available_teams=team_names)
         
         # 3. 构建增强任务（添加执行状态和规则）
-        enhanced_task = f"""{task}
+        enhanced_task = f"""
+================================================================================
+USER TASK
+================================================================================
+{task}
 
+================================================================================
+TEAM EXECUTION STATUS
+================================================================================
 {execution_status}
 
-【重要规则】：
-- 只能调用"未执行"（⭕）的团队
-- 已执行（✅）的团队不能再次调用，他们的结果已经可用
-- 如果需要已执行团队的结果，直接引用即可，不要重新调用
-- 每个团队只能被调用一次
+================================================================================
+EXECUTION REMINDER
+================================================================================
+- Teams marked ⭕ = NOT executed yet (you MUST call these)
+- Teams marked ✅ = Already completed (do NOT call again)
+- You MUST call at least one team - direct answers are FORBIDDEN
+- Follow the MANDATORY WORKFLOW: ANALYZE → DISPATCH → SYNTHESIZE
 """
         
         # 4. 执行任务
         response = agent(enhanced_task)
-        
+
         # 5. 打印完成分析
         print_global_complete()
-        
-        return response
+
+        # 将 AgentResult 转为字符串返回
+        return str(response) if response else ""
 
 
 # ============================================================================

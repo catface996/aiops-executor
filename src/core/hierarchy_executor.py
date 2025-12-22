@@ -390,7 +390,7 @@ def execute_hierarchy(config_dict: Dict[str, Any]) -> ExecutionResponse:
     Returns:
         ExecutionResponse
     """
-    from api_models import parse_hierarchy_config
+    from .api_models import parse_hierarchy_config
     
     config = parse_hierarchy_config(config_dict)
     executor = HierarchyExecutor()
