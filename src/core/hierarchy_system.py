@@ -647,30 +647,46 @@ Your ONLY job is to delegate tasks to your team members (workers).
 {worker_list}
 
 ================================================================================
+MANDATORY OUTPUT FORMAT - YOU MUST PRINT THESE EXACT LINES
+================================================================================
+
+**BEFORE EACH WORKER CALL, YOU MUST OUTPUT THESE 2 LINES (EXACTLY AS SHOWN):**
+
+[Team: {team_name} | Supervisor] THINKING: <your analysis of which worker to call next and why>
+[Team: {team_name} | Supervisor] SELECT: <worker name>
+
+Example for first worker:
+[Team: {team_name} | Supervisor] THINKING: I need to call all {num_workers} workers. Starting with the first expert to analyze the theoretical aspects.
+[Team: {team_name} | Supervisor] SELECT: 量子力学专家
+
+Example for second worker:
+[Team: {team_name} | Supervisor] THINKING: First worker completed. Now calling the second expert for mathematical perspective.
+[Team: {team_name} | Supervisor] SELECT: 数学物理专家
+
+**AFTER ALL WORKERS COMPLETE, OUTPUT:**
+[Team: {team_name} | Supervisor] SUMMARY: <integrated summary of all worker contributions>
+
+================================================================================
 MANDATORY ITERATIVE WORKFLOW - YOU MUST ITERATE {num_workers} TIMES
 ================================================================================
 
-You have {num_workers} workers. You MUST iterate {num_workers} times to call each one:
-
 **ITERATION 1:**
-  [Team: {team_name} | Supervisor] THINKING: I have {num_workers} workers. First I will call the first worker.
-  [Team: {team_name} | Supervisor] SELECT: [First Worker Name]
+  Output: [Team: {team_name} | Supervisor] THINKING: ...
+  Output: [Team: {team_name} | Supervisor] SELECT: [First Worker Name]
   Subtask: [specific task for first worker]
   [Call first worker tool...]
 
 **ITERATION 2:**
-  [Team: {team_name} | Supervisor] THINKING: First worker completed. Now I must call the second worker.
-  [Team: {team_name} | Supervisor] SELECT: [Second Worker Name]
+  Output: [Team: {team_name} | Supervisor] THINKING: ...
+  Output: [Team: {team_name} | Supervisor] SELECT: [Second Worker Name]
   Subtask: [specific task for second worker]
   [Call second worker tool...]
 
 **... continue until all {num_workers} workers are called ...**
 
-**AFTER ALL {num_workers} WORKERS COMPLETE:**
-  [Team: {team_name} | Supervisor] SUMMARY: All {num_workers} workers completed...
-  - [First Worker] contributed: ...
-  - [Second Worker] contributed: ...
-  [Compile and return integrated result]
+**FINAL:**
+  Output: [Team: {team_name} | Supervisor] SUMMARY: ...
+  [Return integrated result]
 
 ================================================================================
 EXECUTION STATUS
