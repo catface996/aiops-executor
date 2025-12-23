@@ -343,51 +343,71 @@ curl http://localhost:18080/health
 
 ## 三、创建测试层级团队
 
-### 3.1 通过 API 创建层级团队
+### 3.1 获取可用模型
+
+```bash
+# 获取可用模型列表
+curl -s -X POST http://localhost:18080/api/v1/models/list \
+  -H "Content-Type: application/json" -d '{}' | jq '.data.items[] | {id, name}'
+
+# 设置模型 ID (替换为实际的模型 ID)
+MODEL_ID="your-model-id-here"
+```
+
+### 3.2 通过 API 创建层级团队
 
 ```bash
 curl -X POST http://localhost:18080/api/v1/hierarchies/create \
   -H "Content-Type: application/json" \
-  -d '{
-    "name": "量子力学研究团队",
-    "global_prompt": "你是量子力学研究团队的首席科学家，负责协调理论和应用研究。",
-    "execution_mode": "sequential",
-    "teams": [
+  -d "{
+    \"name\": \"量子力学研究团队\",
+    \"global_prompt\": \"你是量子力学研究团队的首席科学家，负责协调理论和应用研究。\",
+    \"execution_mode\": \"sequential\",
+    \"llm_config\": {\"model_id\": \"$MODEL_ID\", \"temperature\": 0.7, \"max_tokens\": 4096},
+    \"teams\": [
       {
-        "name": "理论研究组",
-        "supervisor_prompt": "你是理论研究组的负责人，协调量子理论和数学物理研究。",
-        "workers": [
+        \"name\": \"理论研究组\",
+        \"supervisor_prompt\": \"你是理论研究组的负责人，协调量子理论和数学物理研究。\",
+        \"llm_config\": {\"model_id\": \"$MODEL_ID\", \"temperature\": 0.7},
+        \"workers\": [
           {
-            "name": "量子力学专家",
-            "role": "理论物理学家",
-            "system_prompt": "你是量子力学专家，专注于量子理论基础研究。"
+            \"name\": \"量子力学专家\",
+            \"role\": \"理论物理学家\",
+            \"system_prompt\": \"你是量子力学专家，专注于量子理论基础研究。\",
+            \"llm_config\": {\"model_id\": \"$MODEL_ID\", \"temperature\": 0.6}
           },
           {
-            "name": "数学物理专家",
-            "role": "数学物理学家",
-            "system_prompt": "你是数学物理专家，专注于量子力学的数学框架。"
+            \"name\": \"数学物理专家\",
+            \"role\": \"数学物理学家\",
+            \"system_prompt\": \"你是数学物理专家，专注于量子力学的数学框架。\",
+            \"llm_config\": {\"model_id\": \"$MODEL_ID\", \"temperature\": 0.6}
           }
         ]
       },
       {
-        "name": "应用研究组",
-        "supervisor_prompt": "你是应用研究组的负责人，协调量子计算和量子通信研究。",
-        "workers": [
+        \"name\": \"应用研究组\",
+        \"supervisor_prompt\": \"你是应用研究组的负责人，协调量子计算和量子通信研究。\",
+        \"llm_config\": {\"model_id\": \"$MODEL_ID\", \"temperature\": 0.7},
+        \"workers\": [
           {
-            "name": "量子计算专家",
-            "role": "量子计算研究员",
-            "system_prompt": "你是量子计算专家，专注于量子算法和量子计算机研究。"
+            \"name\": \"量子计算专家\",
+            \"role\": \"量子计算研究员\",
+            \"system_prompt\": \"你是量子计算专家，专注于量子算法和量子计算机研究。\",
+            \"llm_config\": {\"model_id\": \"$MODEL_ID\", \"temperature\": 0.6}
           },
           {
-            "name": "量子通信专家",
-            "role": "量子通信研究员",
-            "system_prompt": "你是量子通信专家，专注于量子密钥分发和量子网络研究。"
+            \"name\": \"量子通信专家\",
+            \"role\": \"量子通信研究员\",
+            \"system_prompt\": \"你是量子通信专家，专注于量子密钥分发和量子网络研究。\",
+            \"llm_config\": {\"model_id\": \"$MODEL_ID\", \"temperature\": 0.6}
           }
         ]
       }
     ]
-  }'
+  }"
 ```
+
+> **注意**: `llm_config` 中的 `model_id` 是可选的。如果不指定，系统将使用默认模型。但建议明确指定以确保使用正确的模型。
 
 返回示例：
 ```json
