@@ -57,23 +57,21 @@ else
 fi
 echo ""
 
-# 2. 删除旧镜像
-echo -e "${YELLOW}[2/5] 删除旧镜像...${NC}"
-IMAGE_NAME=$(docker-compose -f $COMPOSE_FILE config | grep "image:" | head -1 | awk '{print $2}')
-if [ -z "$IMAGE_NAME" ]; then
-    # 如果没有指定 image，使用默认的项目名_服务名格式
-    PROJECT_NAME=$(basename "$(pwd)")
-    IMAGE_NAME="${PROJECT_NAME}-api"
-fi
+# 2. 删除项目构建的镜像（不删除基础镜像如 mysql:8.0, python:3.12-slim）
+echo -e "${YELLOW}[2/5] 删除项目镜像...${NC}"
 
-if docker images -q "$IMAGE_NAME" 2>/dev/null | grep -q .; then
-    docker rmi -f "$IMAGE_NAME" 2>/dev/null || true
-    echo -e "${GREEN}      镜像 $IMAGE_NAME 已删除${NC}"
+# 获取项目构建的 API 镜像名称
+PROJECT_NAME=$(basename "$(pwd)")
+API_IMAGE="${PROJECT_NAME}-api"
+
+if docker images -q "$API_IMAGE" 2>/dev/null | grep -q .; then
+    docker rmi -f "$API_IMAGE" 2>/dev/null || true
+    echo -e "${GREEN}      镜像 $API_IMAGE 已删除${NC}"
 else
-    echo -e "${GREEN}      镜像不存在，跳过${NC}"
+    echo -e "${GREEN}      镜像 $API_IMAGE 不存在，跳过${NC}"
 fi
 
-# 清理悬空镜像
+# 清理构建产生的悬空镜像（不影响基础镜像）
 DANGLING=$(docker images -f "dangling=true" -q 2>/dev/null)
 if [ -n "$DANGLING" ]; then
     echo -e "      清理悬空镜像..."
