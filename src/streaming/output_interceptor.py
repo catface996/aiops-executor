@@ -7,7 +7,7 @@ Output Interceptor - 输出拦截器
 import sys
 import re
 import threading
-from typing import Callable, Optional, Dict, Any
+from typing import Callable, Optional, Dict, Any, Union
 from contextlib import contextmanager
 from io import StringIO
 
@@ -31,6 +31,10 @@ class OutputInterceptor:
         'error': re.compile(r'❌|错误|Error|Exception', re.IGNORECASE),
         'warning': re.compile(r'⚠️|警告|Warning', re.IGNORECASE),
     }
+
+    # 标签解析模式（用于从输出中提取 team_name 和 worker_name）
+    # 格式: [Team: 团队名 | Worker: 成员名] 或 [Team: 团队名 | Supervisor] 或 [Global Supervisor]
+    LABEL_PATTERN = re.compile(r'\[(?:Team:\s*([^|\]]+?)\s*\|)?\s*(?:Worker:\s*([^\]]+?)|Supervisor|Global Supervisor)\s*\]')
 
     def __init__(self, event_callback: Callable[[str, Dict[str, Any]], None]):
         """
@@ -79,6 +83,29 @@ class OutputInterceptor:
         """清除当前上下文"""
         self.current_context.clear()
 
+    def _extract_label_info(self, text: str) -> Dict[str, Optional[str]]:
+        """
+        从输出文本中提取标签信息（team_name 和 worker_name）
+
+        标签格式:
+        - [Team: 团队名 | Worker: 成员名]
+        - [Team: 团队名 | Supervisor]
+        - [Global Supervisor]
+        - [Worker: 成员名]
+        """
+        result = {'team_name': None, 'worker_name': None}
+
+        match = self.LABEL_PATTERN.search(text)
+        if match:
+            team_name = match.group(1)
+            worker_name = match.group(2)
+            if team_name:
+                result['team_name'] = team_name.strip()
+            if worker_name:
+                result['worker_name'] = worker_name.strip()
+
+        return result
+
     def _parse_and_emit(self, text: str):
         """解析文本并发射对应事件"""
         if not text or not text.strip():
@@ -86,13 +113,18 @@ class OutputInterceptor:
 
         text_stripped = text.strip()
 
+        # 提取标签信息（team_name 和 worker_name）
+        label_info = self._extract_label_info(text_stripped)
+
         # 按优先级匹配模式
         for event_type, pattern in self.PATTERNS.items():
             match = pattern.search(text_stripped)
             if match:
                 data = {
                     'raw_text': text_stripped[:500],  # 限制长度
-                    'context': self.current_context.copy()
+                    'context': self.current_context.copy(),
+                    'team_name': label_info['team_name'],
+                    'worker_name': label_info['worker_name']
                 }
 
                 # 提取匹配的名称
@@ -106,7 +138,9 @@ class OutputInterceptor:
         if len(text_stripped) > 10:  # 忽略太短的输出
             self.event_callback('output', {
                 'content': text_stripped[:1000],  # 限制长度
-                'context': self.current_context.copy()
+                'context': self.current_context.copy(),
+                'team_name': label_info['team_name'],
+                'worker_name': label_info['worker_name']
             })
 
 
