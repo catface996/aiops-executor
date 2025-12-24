@@ -104,6 +104,7 @@ CREATE TABLE IF NOT EXISTS execution_events (
     run_id VARCHAR(36) NOT NULL COMMENT 'Execution run ID',
     event_type VARCHAR(50) NOT NULL COMMENT 'Event type',
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    sequence BIGINT NOT NULL DEFAULT 0 COMMENT 'Sequence number for ordering events within same second',
     data JSON COMMENT 'Event data',
     -- 来源标识
     is_global_supervisor TINYINT(1) DEFAULT 0 COMMENT 'Is from Global Supervisor',
@@ -113,7 +114,7 @@ CREATE TABLE IF NOT EXISTS execution_events (
     FOREIGN KEY (run_id) REFERENCES execution_runs(id) ON DELETE CASCADE,
     INDEX idx_run_id (run_id),
     INDEX idx_event_type (event_type),
-    INDEX idx_timestamp (timestamp)
+    INDEX idx_timestamp_sequence (timestamp, sequence)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Insert default AI model (Claude Sonnet)

@@ -2,9 +2,11 @@
 Run Repository - 运行记录数据访问层
 """
 
+import time
 from datetime import datetime
 from typing import List, Optional
 from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import func
 
 from ..models import ExecutionRun, ExecutionEvent, RunStatus
 
@@ -113,10 +115,14 @@ class RunRepository:
         worker_name: str = None
     ) -> ExecutionEvent:
         """添加执行事件"""
+        # 使用微秒时间戳作为序列号，保证顺序
+        sequence = int(time.time() * 1000000)
+
         event = ExecutionEvent(
             run_id=run_id,
             event_type=event_type,
             data=data,
+            sequence=sequence,
             is_global_supervisor=is_global_supervisor,
             team_name=team_name,
             is_team_supervisor=is_team_supervisor,
@@ -132,7 +138,7 @@ class RunRepository:
         """获取运行的所有事件"""
         return self.session.query(ExecutionEvent) \
             .filter(ExecutionEvent.run_id == run_id) \
-            .order_by(ExecutionEvent.timestamp) \
+            .order_by(ExecutionEvent.timestamp, ExecutionEvent.sequence) \
             .all()
 
     def set_topology_snapshot(self, run_id: str, topology: dict) -> bool:

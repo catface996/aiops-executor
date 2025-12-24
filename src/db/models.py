@@ -8,7 +8,7 @@ from enum import Enum
 from typing import List, Optional
 
 from sqlalchemy import (
-    Column, String, Float, Integer, Boolean, DateTime,
+    Column, String, Float, Integer, BigInteger, Boolean, DateTime,
     Text, JSON, ForeignKey, Enum as SQLEnum
 )
 from sqlalchemy.orm import relationship, declarative_base
@@ -320,6 +320,7 @@ class ExecutionEvent(Base):
     # 事件信息
     event_type = Column(String(50), nullable=False, comment='事件类型')
     timestamp = Column(DateTime, default=datetime.utcnow)
+    sequence = Column(BigInteger, nullable=False, default=0, comment='序列号，用于同一秒内事件排序')
     data = Column(JSON, nullable=True, comment='事件数据')
 
     # 来源标识
@@ -338,6 +339,7 @@ class ExecutionEvent(Base):
             'run_id': self.run_id,
             'event_type': self.event_type,
             'timestamp': self.timestamp.isoformat() if self.timestamp else None,
+            'sequence': self.sequence,
             'data': self.data,
             'is_global_supervisor': self.is_global_supervisor,
             'team_name': self.team_name,
