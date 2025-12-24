@@ -27,8 +27,8 @@ if [ -f .env ]; then
     export $(grep -v '^#' .env | xargs)
 fi
 
-# 使用环境变量或默认值（与 docker-compose.yml 保持一致，默认 18080）
-API_PORT="${API_EXTERNAL_PORT:-18080}"
+# 使用环境变量或默认值（与 docker-compose.yml 保持一致，默认 8080）
+API_PORT="${API_EXTERNAL_PORT:-8080}"
 HEALTH_URL="http://localhost:${API_PORT}/health"
 
 # 解析参数

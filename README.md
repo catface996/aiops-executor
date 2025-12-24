@@ -54,7 +54,7 @@ cp .env.example .env
 docker-compose up -d
 
 # 验证服务
-curl http://localhost:18080/health
+curl http://localhost:8080/health
 ```
 
 ### 方式 2: 使用预构建镜像
@@ -108,7 +108,7 @@ export USE_IAM_ROLE=true
 ### 创建层级团队
 
 ```bash
-curl -X POST http://localhost:18080/api/v1/hierarchies/create \
+curl -X POST http://localhost:8080/api/v1/hierarchies/create \
   -H "Content-Type: application/json" \
   -d '{
     "name": "研究团队",
@@ -128,7 +128,7 @@ curl -X POST http://localhost:18080/api/v1/hierarchies/create \
 ### 执行任务
 
 ```bash
-curl -X POST http://localhost:18080/api/v1/runs/start \
+curl -X POST http://localhost:8080/api/v1/runs/start \
   -H "Content-Type: application/json" \
   -d '{
     "hierarchy_id": "your-hierarchy-id",
@@ -146,7 +146,7 @@ python test_stream.py "你的问题"
 python test_stream.py --hierarchy=ID "你的问题"
 
 # 指定远程 API
-python test_stream.py --api=http://ec2-ip:18080 "你的问题"
+python test_stream.py --api=http://ec2-ip:8080 "你的问题"
 ```
 
 ## 项目结构

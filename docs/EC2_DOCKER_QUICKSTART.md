@@ -333,7 +333,7 @@ docker-compose up -d --build
 
 ```bash
 # 健康检查
-curl http://localhost:18080/health
+curl http://localhost:8080/health
 
 # 预期输出:
 # {"status":"healthy","timestamp":"...","version":"1.0.0"}
@@ -347,7 +347,7 @@ curl http://localhost:18080/health
 
 ```bash
 # 获取可用模型列表
-curl -s -X POST http://localhost:18080/api/v1/models/list \
+curl -s -X POST http://localhost:8080/api/v1/models/list \
   -H "Content-Type: application/json" -d '{}' | jq '.data.items[] | {id, name}'
 
 # 设置模型 ID (替换为实际的模型 ID)
@@ -357,7 +357,7 @@ MODEL_ID="your-model-id-here"
 ### 3.2 通过 API 创建层级团队
 
 ```bash
-curl -X POST http://localhost:18080/api/v1/hierarchies/create \
+curl -X POST http://localhost:8080/api/v1/hierarchies/create \
   -H "Content-Type: application/json" \
   -d "{
     \"name\": \"量子力学研究团队\",
@@ -450,7 +450,7 @@ python3 test_stream.py --hierarchy=838d04ad-3422-4f39-a2e2-bd6c2ec4441e "请用1
 **方式 C: 指定 API 地址 (远程访问)**
 
 ```bash
-python3 test_stream.py --api=http://your-ec2-ip:18080 "请用100字解释量子纠缠"
+python3 test_stream.py --api=http://your-ec2-ip:8080 "请用100字解释量子纠缠"
 ```
 
 ### 4.3 预期输出
@@ -554,7 +554,7 @@ docker network inspect hierarchical-agents_hierarchical-agents-network
 
 ```bash
 # 检查端口占用
-sudo netstat -tlnp | grep 18080
+sudo netstat -tlnp | grep 8080
 
 # 检查 Docker 日志
 docker-compose logs api
@@ -584,7 +584,7 @@ docker exec hierarchical-agents-api env | grep AWS
 
 ```bash
 # 列出所有层级团队
-curl -X POST http://localhost:18080/api/v1/hierarchies/list \
+curl -X POST http://localhost:8080/api/v1/hierarchies/list \
   -H "Content-Type: application/json" \
   -d '{"page": 1, "size": 10}'
 ```

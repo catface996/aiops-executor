@@ -37,7 +37,7 @@ services:
     container_name: hierarchical-agents-api
     restart: unless-stopped
     ports:
-      - "${API_EXTERNAL_PORT:-18080}:8080"
+      - "${API_EXTERNAL_PORT:-8080}:8080"
     environment:
       # Database Configuration
       - DB_TYPE=mysql
