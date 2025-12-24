@@ -1,10 +1,11 @@
 #!/bin/bash
 #
 # 重新部署脚本
-# 用法: ./redeploy.sh [--no-cache]
+# 用法: ./redeploy.sh [--no-cache] [--reset-db]
 #
 # 选项:
 #   --no-cache    构建时不使用缓存
+#   --reset-db    重置数据库（删除数据卷）
 #
 
 set -e
@@ -19,6 +20,7 @@ NC='\033[0m' # No Color
 # 配置
 COMPOSE_FILE="docker-compose.ec2.yml"
 API_CONTAINER="hierarchical-agents-api"
+MYSQL_CONTAINER="hierarchical-agents-mysql"
 HEALTH_TIMEOUT=60
 HEALTH_INTERVAL=2
 
@@ -33,10 +35,15 @@ HEALTH_URL="http://localhost:${API_PORT}/health"
 
 # 解析参数
 NO_CACHE=""
+RESET_DB=""
 for arg in "$@"; do
     case $arg in
         --no-cache)
             NO_CACHE="--no-cache"
+            shift
+            ;;
+        --reset-db)
+            RESET_DB="true"
             shift
             ;;
     esac
@@ -47,18 +54,37 @@ echo -e "${BLUE}       重新部署 AIOps Executor         ${NC}"
 echo -e "${BLUE}========================================${NC}"
 echo ""
 
-# 1. 停止服务
-echo -e "${YELLOW}[1/5] 停止服务...${NC}"
+# 1. 停止服务并删除容器
+echo -e "${YELLOW}[1/6] 停止服务并删除容器...${NC}"
 if docker-compose -f $COMPOSE_FILE ps -q 2>/dev/null | grep -q .; then
-    docker-compose -f $COMPOSE_FILE down
-    echo -e "${GREEN}      服务已停止${NC}"
+    if [ -n "$RESET_DB" ]; then
+        # 删除容器和数据卷
+        docker-compose -f $COMPOSE_FILE down -v
+        echo -e "${GREEN}      服务已停止，容器和数据卷已删除${NC}"
+    else
+        # 只删除容器
+        docker-compose -f $COMPOSE_FILE down
+        echo -e "${GREEN}      服务已停止，容器已删除${NC}"
+    fi
 else
-    echo -e "${GREEN}      服务未运行，跳过${NC}"
+    echo -e "${GREEN}      服务未运行${NC}"
+fi
+
+# 强制删除数据库容器（如果存在）
+if docker ps -a -q -f "name=$MYSQL_CONTAINER" | grep -q .; then
+    docker rm -f $MYSQL_CONTAINER 2>/dev/null || true
+    echo -e "${GREEN}      数据库容器已删除${NC}"
+fi
+
+# 强制删除 API 容器（如果存在）
+if docker ps -a -q -f "name=$API_CONTAINER" | grep -q .; then
+    docker rm -f $API_CONTAINER 2>/dev/null || true
+    echo -e "${GREEN}      API 容器已删除${NC}"
 fi
 echo ""
 
 # 2. 删除项目构建的镜像（不删除基础镜像如 mysql:8.0, python:3.12-slim）
-echo -e "${YELLOW}[2/5] 删除项目镜像...${NC}"
+echo -e "${YELLOW}[2/6] 删除项目镜像...${NC}"
 
 # 获取项目构建的 API 镜像名称
 PROJECT_NAME=$(basename "$(pwd)")
@@ -80,7 +106,7 @@ fi
 echo ""
 
 # 3. 重新构建镜像
-echo -e "${YELLOW}[3/5] 重新构建镜像...${NC}"
+echo -e "${YELLOW}[3/6] 重新构建镜像...${NC}"
 if [ -n "$NO_CACHE" ]; then
     echo -e "      使用 --no-cache 模式"
 fi
@@ -89,13 +115,19 @@ echo -e "${GREEN}      镜像构建完成${NC}"
 echo ""
 
 # 4. 启动服务
-echo -e "${YELLOW}[4/5] 启动服务...${NC}"
+echo -e "${YELLOW}[4/6] 启动服务...${NC}"
 docker-compose -f $COMPOSE_FILE up -d
 echo -e "${GREEN}      服务已启动${NC}"
 echo ""
 
-# 5. 健康检查
-echo -e "${YELLOW}[5/5] 健康检查...${NC}"
+# 5. 等待数据库就绪
+echo -e "${YELLOW}[5/6] 等待数据库就绪...${NC}"
+sleep 5
+echo -e "${GREEN}      数据库启动中...${NC}"
+echo ""
+
+# 6. 健康检查
+echo -e "${YELLOW}[6/6] API 健康检查...${NC}"
 echo -e "      等待服务就绪 (最多 ${HEALTH_TIMEOUT}s)..."
 
 elapsed=0
