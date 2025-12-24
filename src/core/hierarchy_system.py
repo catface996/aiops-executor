@@ -29,7 +29,7 @@ from .output_formatter import (
     print_worker_start, print_worker_thinking, print_worker_complete,
     print_worker_warning, print_worker_error,
     print_team_start, print_team_thinking, print_team_complete, print_team_summary,
-    print_team_warning, print_team_error, print_team_duplicate_warning,
+    print_team_warning, print_team_error, print_team_duplicate_warning, print_team_dispatch,
     print_global_start, print_global_thinking, print_global_dispatch,
     print_global_summary, print_global_complete,
     set_current_team, OutputFormatter
@@ -429,6 +429,10 @@ class WorkerAgentFactory:
         """
         # 获取当前团队上下文
         current_team = OutputFormatter.get_current_team()
+
+        # Team Supervisor 发出调度消息
+        if current_team:
+            print_team_dispatch(current_team, config.name)
 
         # 打印开始信息
         print_worker_start(config.name, task, current_team)

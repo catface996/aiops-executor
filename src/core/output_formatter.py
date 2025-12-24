@@ -195,7 +195,14 @@ class OutputFormatter:
     def print_team_duplicate_warning(message: str):
         """打印 Team Supervisor 重复调用警告"""
         print(f"\n⚠️  {message}\n")
-    
+
+    @staticmethod
+    def print_team_dispatch(team_name: str, worker_name: str):
+        """打印 Team Supervisor 调度 Worker"""
+        label = OutputFormatter.format_source_label('team_supervisor', team_name)
+        print(f"\n{label} 📤 DISPATCH: 调度 [{worker_name}]")
+        print("")
+
     # ========================================================================
     # Global Supervisor 输出
     # ========================================================================
@@ -304,6 +311,11 @@ def print_team_error(message: str):
 def print_team_duplicate_warning(message: str):
     """打印 Team Supervisor 重复调用警告"""
     OutputFormatter.print_team_duplicate_warning(message)
+
+
+def print_team_dispatch(team_name: str, worker_name: str):
+    """打印 Team Supervisor 调度 Worker"""
+    OutputFormatter.print_team_dispatch(team_name, worker_name)
 
 
 # Global 输出
