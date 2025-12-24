@@ -44,7 +44,6 @@ class OutputInterceptor:
         self.event_callback = event_callback
         self.original_stdout = None
         self.buffer = StringIO()
-        self.current_context: Dict[str, Any] = {}
         self._lock = threading.Lock()
 
     def start_interception(self):
@@ -74,14 +73,6 @@ class OutputInterceptor:
         """实现 flush 方法"""
         if self.original_stdout:
             self.original_stdout.flush()
-
-    def set_context(self, **kwargs):
-        """设置当前上下文"""
-        self.current_context.update(kwargs)
-
-    def clear_context(self):
-        """清除当前上下文"""
-        self.current_context.clear()
 
     def _extract_label_info(self, text: str) -> Dict[str, Optional[str]]:
         """
@@ -122,7 +113,6 @@ class OutputInterceptor:
             if match:
                 data = {
                     'raw_text': text_stripped[:500],  # 限制长度
-                    'context': self.current_context.copy(),
                     'team_name': label_info['team_name'],
                     'worker_name': label_info['worker_name']
                 }
@@ -138,7 +128,6 @@ class OutputInterceptor:
         if len(text_stripped) > 10:  # 忽略太短的输出
             self.event_callback('output', {
                 'content': text_stripped[:1000],  # 限制长度
-                'context': self.current_context.copy(),
                 'team_name': label_info['team_name'],
                 'worker_name': label_info['worker_name']
             })
