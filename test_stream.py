@@ -9,7 +9,7 @@
     python test_stream.py [options] [task]
 
 选项:
-    --api=URL         指定API地址 (默认: http://localhost:8080)
+    --api=URL         指定API地址 (默认: http://localhost:8082)
     --skip-create     跳过创建层级团队，使用已有的
     --hierarchy=ID    指定已有的层级团队ID
 
@@ -26,7 +26,7 @@ import requests
 from datetime import datetime
 
 # 配置
-API_BASE = os.environ.get("API_BASE", "http://localhost:8080")
+API_BASE = os.environ.get("API_BASE", "http://localhost:8082")
 HIERARCHY_ID = ""
 
 # ANSI 颜色代码

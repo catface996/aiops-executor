@@ -7,7 +7,7 @@
     python test_stream_raw.py [options] [task]
 
 选项:
-    --api=URL         指定API地址 (默认: http://localhost:8080)
+    --api=URL         指定API地址 (默认: http://localhost:8082)
     --hierarchy=ID    指定层级团队ID (可选，未指定时自动创建)
 
 示例:
@@ -23,7 +23,7 @@ import os
 import requests
 
 # 配置
-API_BASE = os.environ.get("API_BASE", "http://localhost:8080")
+API_BASE = os.environ.get("API_BASE", "http://localhost:8082")
 HIERARCHY_ID = os.environ.get("HIERARCHY_ID", "")
 
 
