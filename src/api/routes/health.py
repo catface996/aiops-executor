@@ -40,10 +40,30 @@ def health_check():
 @swag_from({
     'tags': ['Health'],
     'summary': 'API 信息',
-    'description': '获取 API 基本信息',
+    'description': '获取 API 基本信息和可用端点列表',
     'responses': {
         200: {
-            'description': 'API 信息'
+            'description': 'API 信息',
+            'schema': {
+                'type': 'object',
+                'properties': {
+                    'name': {'type': 'string', 'example': 'Op-Stack Executor API'},
+                    'version': {'type': 'string', 'example': '1.0.0'},
+                    'description': {'type': 'string', 'example': '层级多智能体系统执行器 API'},
+                    'endpoints': {
+                        'type': 'object',
+                        'description': '可用端点列表',
+                        'properties': {
+                            'health': {'type': 'string', 'example': '/health'},
+                            'swagger_ui': {'type': 'string', 'example': '/swagger-ui.html'},
+                            'openapi_json': {'type': 'string', 'example': '/v3/api-docs'},
+                            'models': {'type': 'string', 'example': '/api/executor/v1/models/*'},
+                            'hierarchies': {'type': 'string', 'example': '/api/executor/v1/hierarchies/*'},
+                            'runs': {'type': 'string', 'example': '/api/executor/v1/runs/*'}
+                        }
+                    }
+                }
+            }
         }
     }
 })

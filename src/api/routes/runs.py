@@ -107,6 +107,7 @@ def start_run():
 @swag_from({
     'tags': ['Runs'],
     'summary': '获取运行列表',
+    'description': '分页获取任务运行记录列表，支持按层级团队和状态筛选',
     'parameters': [{
         'name': 'body',
         'in': 'body',
@@ -114,15 +115,50 @@ def start_run():
         'schema': {
             'type': 'object',
             'properties': {
-                'page': {'type': 'integer', 'default': 1},
-                'size': {'type': 'integer', 'default': 20},
-                'hierarchy_id': {'type': 'string'},
-                'status': {'type': 'string', 'enum': ['pending', 'running', 'completed', 'failed', 'cancelled']}
+                'page': {'type': 'integer', 'default': 1, 'description': '页码，从 1 开始'},
+                'size': {'type': 'integer', 'default': 20, 'description': '每页数量，范围 1-100'},
+                'hierarchy_id': {'type': 'string', 'description': '按层级团队 ID 筛选'},
+                'status': {'type': 'string', 'enum': ['pending', 'running', 'completed', 'failed', 'cancelled'], 'description': '按运行状态筛选'}
             }
         }
     }],
     'responses': {
-        200: {'description': '运行列表'}
+        200: {
+            'description': '运行列表',
+            'schema': {
+                'type': 'object',
+                'properties': {
+                    'code': {'type': 'integer', 'example': 0},
+                    'success': {'type': 'boolean'},
+                    'data': {
+                        'type': 'object',
+                        'properties': {
+                            'content': {
+                                'type': 'array',
+                                'items': {
+                                    'type': 'object',
+                                    'properties': {
+                                        'id': {'type': 'string', 'description': '运行唯一标识'},
+                                        'hierarchy_id': {'type': 'string', 'description': '关联的层级团队 ID'},
+                                        'task': {'type': 'string', 'description': '任务描述'},
+                                        'status': {'type': 'string', 'enum': ['pending', 'running', 'completed', 'failed', 'cancelled']},
+                                        'result': {'type': 'string', 'description': '执行结果（完成时）'},
+                                        'error': {'type': 'string', 'description': '错误信息（失败时）'},
+                                        'started_at': {'type': 'string', 'format': 'date-time'},
+                                        'completed_at': {'type': 'string', 'format': 'date-time'},
+                                        'created_at': {'type': 'string', 'format': 'date-time'}
+                                    }
+                                }
+                            },
+                            'page': {'type': 'integer'},
+                            'size': {'type': 'integer'},
+                            'totalElements': {'type': 'integer'},
+                            'totalPages': {'type': 'integer'}
+                        }
+                    }
+                }
+            }
+        }
     }
 })
 def list_runs():
@@ -155,6 +191,7 @@ def list_runs():
 @swag_from({
     'tags': ['Runs'],
     'summary': '获取运行详情',
+    'description': '根据运行 ID 获取运行的详细信息，包括任务描述、状态、结果和执行统计',
     'parameters': [{
         'name': 'body',
         'in': 'body',
@@ -163,12 +200,36 @@ def list_runs():
             'type': 'object',
             'required': ['id'],
             'properties': {
-                'id': {'type': 'string'}
+                'id': {'type': 'string', 'description': '运行唯一标识 (UUID)'}
             }
         }
     }],
     'responses': {
-        200: {'description': '运行详情'},
+        200: {
+            'description': '运行详情',
+            'schema': {
+                'type': 'object',
+                'properties': {
+                    'success': {'type': 'boolean'},
+                    'data': {
+                        'type': 'object',
+                        'properties': {
+                            'id': {'type': 'string'},
+                            'hierarchy_id': {'type': 'string'},
+                            'task': {'type': 'string'},
+                            'status': {'type': 'string', 'enum': ['pending', 'running', 'completed', 'failed', 'cancelled']},
+                            'result': {'type': 'string', 'description': '执行结果文本'},
+                            'error': {'type': 'string', 'description': '错误信息'},
+                            'statistics': {'type': 'object', 'description': '执行统计信息'},
+                            'topology_snapshot': {'type': 'object', 'description': '执行时的拓扑快照'},
+                            'started_at': {'type': 'string', 'format': 'date-time'},
+                            'completed_at': {'type': 'string', 'format': 'date-time'},
+                            'created_at': {'type': 'string', 'format': 'date-time'}
+                        }
+                    }
+                }
+            }
+        },
         404: {'description': '运行不存在'}
     }
 })
@@ -179,14 +240,14 @@ def get_run():
         req = IdRequest(**data)
 
         repo = get_repo()
-        run = repo.get_by_id(req.id, include_events=True)
+        run = repo.get_by_id(req.id)
 
         if not run:
             return jsonify({'success': False, 'error': '运行记录不存在'}), 404
 
         return jsonify({
             'success': True,
-            'data': run.to_dict(include_events=True)
+            'data': run.to_dict()
         })
     except ValidationError as e:
         return jsonify({'success': False, 'error': str(e)}), 400
@@ -335,6 +396,24 @@ def stream_run():
 @swag_from({
     'tags': ['Runs'],
     'summary': '取消运行',
+    'description': '''取消正在执行的运行任务。
+
+## 取消条件
+
+只有状态为 `pending` 或 `running` 的运行可以被取消。
+
+## 取消行为
+
+- 向执行中的 Agent 发送取消信号
+- 更新运行状态为 `cancelled`
+- 记录 `lifecycle.cancelled` 事件
+- 关闭相关的 SSE 流连接
+
+## 注意事项
+
+- 已完成 (`completed`)、已失败 (`failed`)、已取消 (`cancelled`) 的运行无法再次取消
+- 取消操作是异步的，Agent 可能需要一定时间才能完全停止
+''',
     'parameters': [{
         'name': 'body',
         'in': 'body',
@@ -343,14 +422,41 @@ def stream_run():
             'type': 'object',
             'required': ['id'],
             'properties': {
-                'id': {'type': 'string'}
+                'id': {'type': 'string', 'description': '要取消的运行 ID (UUID)'}
             }
         }
     }],
     'responses': {
-        200: {'description': '取消成功'},
-        400: {'description': '运行无法取消'},
-        404: {'description': '运行不存在'}
+        200: {
+            'description': '取消成功',
+            'schema': {
+                'type': 'object',
+                'properties': {
+                    'success': {'type': 'boolean', 'example': True},
+                    'message': {'type': 'string', 'example': '运行已取消'}
+                }
+            }
+        },
+        400: {
+            'description': '运行无法取消（状态不允许）',
+            'schema': {
+                'type': 'object',
+                'properties': {
+                    'success': {'type': 'boolean', 'example': False},
+                    'error': {'type': 'string', 'example': '运行状态为 completed，无法取消'}
+                }
+            }
+        },
+        404: {
+            'description': '运行不存在',
+            'schema': {
+                'type': 'object',
+                'properties': {
+                    'success': {'type': 'boolean', 'example': False},
+                    'error': {'type': 'string', 'example': '运行记录不存在'}
+                }
+            }
+        }
     }
 })
 def cancel_run():

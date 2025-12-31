@@ -27,6 +27,7 @@ def get_repo():
 @swag_from({
     'tags': ['Hierarchies'],
     'summary': '获取层级团队列表',
+    'description': '分页获取层级团队配置列表，支持按激活状态筛选',
     'parameters': [{
         'name': 'body',
         'in': 'body',
@@ -34,14 +35,49 @@ def get_repo():
         'schema': {
             'type': 'object',
             'properties': {
-                'page': {'type': 'integer', 'default': 1},
-                'size': {'type': 'integer', 'default': 20},
-                'is_active': {'type': 'boolean'}
+                'page': {'type': 'integer', 'default': 1, 'description': '页码，从 1 开始'},
+                'size': {'type': 'integer', 'default': 20, 'description': '每页数量，范围 1-100'},
+                'is_active': {'type': 'boolean', 'description': '筛选激活状态，true=仅激活，false=仅未激活，不传=全部'}
             }
         }
     }],
     'responses': {
-        200: {'description': '层级团队列表'}
+        200: {
+            'description': '层级团队列表',
+            'schema': {
+                'type': 'object',
+                'properties': {
+                    'code': {'type': 'integer', 'example': 0},
+                    'success': {'type': 'boolean', 'example': True},
+                    'data': {
+                        'type': 'object',
+                        'properties': {
+                            'content': {
+                                'type': 'array',
+                                'items': {
+                                    'type': 'object',
+                                    'properties': {
+                                        'id': {'type': 'string', 'description': '层级团队唯一标识'},
+                                        'name': {'type': 'string', 'description': '层级团队名称'},
+                                        'description': {'type': 'string', 'description': '描述信息'},
+                                        'execution_mode': {'type': 'string', 'enum': ['sequential', 'parallel'], 'description': '执行模式'},
+                                        'team_count': {'type': 'integer', 'description': '团队数量'},
+                                        'is_active': {'type': 'boolean', 'description': '是否激活'},
+                                        'version': {'type': 'integer', 'description': '版本号'},
+                                        'created_at': {'type': 'string', 'format': 'date-time'},
+                                        'updated_at': {'type': 'string', 'format': 'date-time'}
+                                    }
+                                }
+                            },
+                            'page': {'type': 'integer'},
+                            'size': {'type': 'integer'},
+                            'totalElements': {'type': 'integer'},
+                            'totalPages': {'type': 'integer'}
+                        }
+                    }
+                }
+            }
+        }
     }
 })
 def list_hierarchies():
@@ -90,7 +126,7 @@ def list_hierarchies():
 @swag_from({
     'tags': ['Hierarchies'],
     'summary': '获取层级团队详情',
-    'description': '获取完整的层级团队配置',
+    'description': '根据 ID 获取层级团队的完整配置信息，包括 Global Supervisor、Team Supervisors 和 Workers 的详细配置',
     'parameters': [{
         'name': 'body',
         'in': 'body',
@@ -99,12 +135,33 @@ def list_hierarchies():
             'type': 'object',
             'required': ['id'],
             'properties': {
-                'id': {'type': 'string'}
+                'id': {'type': 'string', 'description': '层级团队唯一标识 (UUID)'}
             }
         }
     }],
     'responses': {
-        200: {'description': '层级团队详情'},
+        200: {
+            'description': '层级团队详情',
+            'schema': {
+                'type': 'object',
+                'properties': {
+                    'success': {'type': 'boolean'},
+                    'data': {
+                        'type': 'object',
+                        'properties': {
+                            'id': {'type': 'string', 'description': '层级团队唯一标识'},
+                            'name': {'type': 'string', 'description': '层级团队名称'},
+                            'description': {'type': 'string', 'description': '描述信息'},
+                            'config': {'type': 'object', 'description': '完整的层级配置 JSON'},
+                            'is_active': {'type': 'boolean'},
+                            'version': {'type': 'integer'},
+                            'created_at': {'type': 'string', 'format': 'date-time'},
+                            'updated_at': {'type': 'string', 'format': 'date-time'}
+                        }
+                    }
+                }
+            }
+        },
         404: {'description': '层级团队不存在'}
     }
 })
@@ -134,6 +191,39 @@ def get_hierarchy():
 @swag_from({
     'tags': ['Hierarchies'],
     'summary': '创建层级团队',
+    'description': '''创建新的层级多智能体系统配置。
+
+## 层级结构
+
+```
+Global Supervisor (全局协调者)
+├── Team 1 (团队1)
+│   ├── Team Supervisor (团队主管)
+│   └── Workers (工作者)
+│       ├── Worker 1
+│       └── Worker 2
+└── Team 2 (团队2)
+    ├── Team Supervisor
+    └── Workers
+```
+
+## agent_id 规则
+
+- 每个 Agent (Global Supervisor, Team Supervisor, Worker) 都可以指定 `agent_id`
+- `agent_id` 在同一个 Hierarchy 内必须唯一
+- 用于事件追踪和日志关联
+
+## llm_config 结构
+
+```json
+{
+  "temperature": 0.7,    // 温度参数 (0.0-2.0)
+  "max_tokens": 2048,    // 最大 Token 数
+  "top_p": 0.9,          // Top-P 采样参数
+  "model_id": "xxx"      // 可选，关联的模型配置 ID
+}
+```
+''',
     'parameters': [{
         'name': 'body',
         'in': 'body',
@@ -142,52 +232,83 @@ def get_hierarchy():
             'type': 'object',
             'required': ['name', 'global_supervisor_agent', 'teams'],
             'properties': {
-                'name': {'type': 'string'},
-                'description': {'type': 'string'},
-                'execution_mode': {'type': 'string', 'enum': ['sequential', 'parallel']},
-                'enable_context_sharing': {'type': 'boolean'},
+                'name': {'type': 'string', 'description': '层级团队名称，必须唯一', 'example': 'customer-service-team'},
+                'description': {'type': 'string', 'description': '层级团队描述', 'example': '客服智能体团队'},
+                'execution_mode': {'type': 'string', 'enum': ['sequential', 'parallel'], 'default': 'sequential', 'description': '团队执行模式：sequential=顺序执行，parallel=并行执行'},
+                'enable_context_sharing': {'type': 'boolean', 'default': False, 'description': '是否启用跨团队上下文共享'},
                 'global_supervisor_agent': {
                     'type': 'object',
                     'required': ['system_prompt'],
+                    'description': 'Global Supervisor 配置 - 全局协调者，负责任务分解和团队调度',
                     'properties': {
-                        'agent_id': {'type': 'string'},
-                        'system_prompt': {'type': 'string'},
-                        'user_message': {'type': 'string'},
-                        'llm_config': {'type': 'object'}
+                        'agent_id': {'type': 'string', 'description': 'Agent 唯一标识，用于事件追踪', 'example': 'gs-001'},
+                        'system_prompt': {'type': 'string', 'description': '系统提示词，定义 Agent 角色和行为', 'example': 'You are a global coordinator...'},
+                        'user_message': {'type': 'string', 'description': '预定义的用户消息（可选）'},
+                        'llm_config': {
+                            'type': 'object',
+                            'description': 'LLM 配置参数',
+                            'properties': {
+                                'temperature': {'type': 'number', 'default': 0.7, 'description': '温度参数 (0.0-2.0)，越高越随机'},
+                                'max_tokens': {'type': 'integer', 'default': 2048, 'description': '最大输出 Token 数'},
+                                'top_p': {'type': 'number', 'default': 0.9, 'description': 'Top-P 采样参数'},
+                                'model_id': {'type': 'string', 'description': '关联的模型配置 ID（可选）'}
+                            }
+                        }
                     }
                 },
                 'teams': {
                     'type': 'array',
+                    'description': '团队配置列表，至少包含一个团队',
                     'items': {
                         'type': 'object',
                         'required': ['name', 'team_supervisor_agent', 'workers'],
                         'properties': {
-                            'name': {'type': 'string'},
+                            'name': {'type': 'string', 'description': '团队名称，在层级内唯一', 'example': 'analysis-team'},
                             'team_supervisor_agent': {
                                 'type': 'object',
                                 'required': ['system_prompt'],
+                                'description': 'Team Supervisor 配置 - 团队主管，负责协调本团队的 Workers',
                                 'properties': {
-                                    'agent_id': {'type': 'string'},
-                                    'system_prompt': {'type': 'string'},
-                                    'user_message': {'type': 'string'},
-                                    'llm_config': {'type': 'object'}
+                                    'agent_id': {'type': 'string', 'description': 'Agent 唯一标识', 'example': 'ts-001'},
+                                    'system_prompt': {'type': 'string', 'description': '系统提示词'},
+                                    'user_message': {'type': 'string', 'description': '预定义的用户消息（可选）'},
+                                    'llm_config': {
+                                        'type': 'object',
+                                        'description': 'LLM 配置参数',
+                                        'properties': {
+                                            'temperature': {'type': 'number', 'default': 0.7},
+                                            'max_tokens': {'type': 'integer', 'default': 2048},
+                                            'top_p': {'type': 'number', 'default': 0.9},
+                                            'model_id': {'type': 'string'}
+                                        }
+                                    }
                                 }
                             },
-                            'prevent_duplicate': {'type': 'boolean'},
-                            'share_context': {'type': 'boolean'},
+                            'prevent_duplicate': {'type': 'boolean', 'default': True, 'description': '是否防止重复调用同一任务'},
+                            'share_context': {'type': 'boolean', 'default': False, 'description': '是否接收其他团队的执行上下文'},
                             'workers': {
                                 'type': 'array',
+                                'description': 'Worker 配置列表，至少包含一个 Worker',
                                 'items': {
                                     'type': 'object',
                                     'required': ['name', 'role', 'system_prompt'],
                                     'properties': {
-                                        'agent_id': {'type': 'string'},
-                                        'name': {'type': 'string'},
-                                        'role': {'type': 'string'},
-                                        'system_prompt': {'type': 'string'},
-                                        'user_message': {'type': 'string'},
-                                        'tools': {'type': 'array'},
-                                        'llm_config': {'type': 'object'}
+                                        'agent_id': {'type': 'string', 'description': 'Agent 唯一标识', 'example': 'w-001'},
+                                        'name': {'type': 'string', 'description': 'Worker 名称', 'example': 'Data Analyst'},
+                                        'role': {'type': 'string', 'description': 'Worker 角色描述', 'example': '数据分析专家'},
+                                        'system_prompt': {'type': 'string', 'description': '系统提示词，定义 Worker 的专业能力'},
+                                        'user_message': {'type': 'string', 'description': '预定义的用户消息（可选）'},
+                                        'tools': {'type': 'array', 'items': {'type': 'string'}, 'description': '可用工具列表', 'example': ['calculator', 'http_request']},
+                                        'llm_config': {
+                                            'type': 'object',
+                                            'description': 'LLM 配置参数',
+                                            'properties': {
+                                                'temperature': {'type': 'number', 'default': 0.7},
+                                                'max_tokens': {'type': 'integer', 'default': 2048},
+                                                'top_p': {'type': 'number', 'default': 0.9},
+                                                'model_id': {'type': 'string'}
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -198,8 +319,28 @@ def get_hierarchy():
         }
     }],
     'responses': {
-        200: {'description': '创建成功'},
-        400: {'description': '请求无效'}
+        200: {
+            'description': '创建成功',
+            'schema': {
+                'type': 'object',
+                'properties': {
+                    'success': {'type': 'boolean', 'example': True},
+                    'message': {'type': 'string', 'example': '层级团队创建成功'},
+                    'data': {'type': 'object', 'description': '创建的层级团队完整信息'}
+                }
+            }
+        },
+        400: {
+            'description': '请求无效',
+            'schema': {
+                'type': 'object',
+                'properties': {
+                    'success': {'type': 'boolean', 'example': False},
+                    'error': {'type': 'string', 'example': '层级团队名称已存在'},
+                    'code': {'type': 'integer', 'example': 400001, 'description': '错误码，400001=agent_id 重复'}
+                }
+            }
+        }
     }
 })
 def create_hierarchy():
@@ -253,6 +394,19 @@ def create_hierarchy():
 @swag_from({
     'tags': ['Hierarchies'],
     'summary': '更新层级团队',
+    'description': '''更新层级团队配置。支持部分更新，只传入需要修改的字段即可。
+
+## 更新规则
+
+- `name`: 修改名称时会检查唯一性
+- `global_supervisor_agent`: 完整替换 Global Supervisor 配置
+- `teams`: 完整替换所有团队配置（不支持增量更新）
+- `is_active`: 可用于停用/启用层级团队
+
+## agent_id 验证
+
+更新 `global_supervisor_agent` 或 `teams` 时，会重新验证所有 `agent_id` 的唯一性。
+''',
     'parameters': [{
         'name': 'body',
         'in': 'body',
@@ -261,19 +415,30 @@ def create_hierarchy():
             'type': 'object',
             'required': ['id'],
             'properties': {
-                'id': {'type': 'string'},
-                'name': {'type': 'string'},
-                'description': {'type': 'string'},
-                'execution_mode': {'type': 'string'},
-                'enable_context_sharing': {'type': 'boolean'},
-                'global_supervisor_agent': {'type': 'object'},
-                'teams': {'type': 'array'},
-                'is_active': {'type': 'boolean'}
+                'id': {'type': 'string', 'description': '层级团队唯一标识 (UUID)'},
+                'name': {'type': 'string', 'description': '新的层级团队名称'},
+                'description': {'type': 'string', 'description': '新的描述信息'},
+                'execution_mode': {'type': 'string', 'enum': ['sequential', 'parallel'], 'description': '团队执行模式'},
+                'enable_context_sharing': {'type': 'boolean', 'description': '是否启用跨团队上下文共享'},
+                'global_supervisor_agent': {'type': 'object', 'description': '完整的 Global Supervisor 配置（完整替换）'},
+                'teams': {'type': 'array', 'description': '完整的团队配置列表（完整替换）'},
+                'is_active': {'type': 'boolean', 'description': '是否激活，false=停用'}
             }
         }
     }],
     'responses': {
-        200: {'description': '更新成功'},
+        200: {
+            'description': '更新成功',
+            'schema': {
+                'type': 'object',
+                'properties': {
+                    'success': {'type': 'boolean', 'example': True},
+                    'message': {'type': 'string', 'example': '层级团队更新成功'},
+                    'data': {'type': 'object', 'description': '更新后的层级团队完整信息'}
+                }
+            }
+        },
+        400: {'description': '请求无效（名称重复或 agent_id 重复）'},
         404: {'description': '层级团队不存在'}
     }
 })
@@ -349,6 +514,10 @@ def update_hierarchy():
 @swag_from({
     'tags': ['Hierarchies'],
     'summary': '删除层级团队',
+    'description': '''永久删除指定的层级团队配置。
+
+**注意**: 此操作不可逆，删除后无法恢复。建议在删除前先将 `is_active` 设为 `false` 进行停用。
+''',
     'parameters': [{
         'name': 'body',
         'in': 'body',
@@ -357,12 +526,21 @@ def update_hierarchy():
             'type': 'object',
             'required': ['id'],
             'properties': {
-                'id': {'type': 'string'}
+                'id': {'type': 'string', 'description': '层级团队唯一标识 (UUID)'}
             }
         }
     }],
     'responses': {
-        200: {'description': '删除成功'},
+        200: {
+            'description': '删除成功',
+            'schema': {
+                'type': 'object',
+                'properties': {
+                    'success': {'type': 'boolean', 'example': True},
+                    'message': {'type': 'string', 'example': '层级团队删除成功'}
+                }
+            }
+        },
         404: {'description': '层级团队不存在'}
     }
 })
